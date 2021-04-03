@@ -1,1371 +1,1175 @@
-/*
-	DOSFS Embedded FAT-Compatible Filesystem
-	(C) 2005 Lewin A.R.W. Edwards (sysadm@zws.com)
+/*----------------------------------------------------------------------------/
+/  Petit FatFs - FAT file system module  R0.03a
+/-----------------------------------------------------------------------------/
+/
+/ Copyright (C) 2019, ChaN, all right reserved.
+/
+/ Petit FatFs module is an open source software. Redistribution and use of
+/ Petit FatFs in source and binary forms, with or without modification, are
+/ permitted provided that the following condition is met:
+/
+/ 1. Redistributions of source code must retain the above copyright notice,
+/    this condition and the following disclaimer.
+/
+/ This software is provided by the copyright holder and contributors "AS IS"
+/ and any warranties related to this software are DISCLAIMED.
+/ The copyright owner or contributors be NOT LIABLE for any damages caused
+/ by use of this software.
+/-----------------------------------------------------------------------------/
+/ Jun 15,'09  R0.01a  First release.
+/
+/ Dec 14,'09  R0.02   Added multiple code page support.
+/                     Added write funciton.
+/                     Changed stream read mode interface.
+/ Dec 07,'10  R0.02a  Added some configuration options.
+/                     Fixed fails to open objects with DBCS character.
 
-	You are permitted to modify and/or use this code in your own projects without
-	payment of royalty, regardless of the license(s) you choose for those projects.
+/ Jun 10,'14  R0.03   Separated out configuration options to pffconf.h.
+/                     Added _USE_LCC option.
+/                     Added _FS_FAT16 option.
+/
+/ Jan 30,'19  R0.03a  Supported stdint.h for C99 and later.
+/                     Removed _WORD_ACCESS option.
+/                     Changed prefix of configuration options, _ to PF_.
+/                     Added some code pages.
+/                     Removed some code pages actually not valid.
+/----------------------------------------------------------------------------*/
 
-	You cannot re-copyright or restrict use of the code as released by Lewin Edwards.
-*/
+#include "pff.h"		/* Petit FatFs configurations and declarations */
+#include "diskio.h"		/* Declarations of low level disk I/O functions */
 
-//#include <string.h>
-//#include <stdlib.h>
-#include "printf.h"
-#include "fat.h"
-#include "hostemu.h"
 
-//STDLIB
-void memcpy(void *dest, void *src, size_t n)
+
+/*--------------------------------------------------------------------------
+
+   Module Private Definitions
+
+---------------------------------------------------------------------------*/
+
+
+#if PF_DEFINED != 8088	/* Revision ID */
+#error Wrong include file (pff.h).
+#endif
+
+#if PF_FS_FAT32
+#if !PF_FS_FAT16 && !PF_FS_FAT12
+#define _FS_32ONLY 1
+#else
+#define _FS_32ONLY 0
+#endif
+#else
+#if !PF_FS_FAT16 && !PF_FS_FAT12
+#error Wrong PF_FS_FATxx setting.
+#endif
+#define _FS_32ONLY 0
+#endif
+
+#define ABORT(err)	{fs->flag = 0; return err;}
+
+
+
+/*--------------------------------------------------------*/
+/* DBCS code ranges and SBCS extend char conversion table */
+/*--------------------------------------------------------*/
+
+#if PF_USE_LCC == 0		/* ASCII upper case character only */
+
+#elif PF_CODE_PAGE == 932	/* Japanese Shift-JIS */
+#define _DF1S	0x81	/* DBC 1st byte range 1 start */
+#define _DF1E	0x9F	/* DBC 1st byte range 1 end */
+#define _DF2S	0xE0	/* DBC 1st byte range 2 start */
+#define _DF2E	0xFC	/* DBC 1st byte range 2 end */
+#define _DS1S	0x40	/* DBC 2nd byte range 1 start */
+#define _DS1E	0x7E	/* DBC 2nd byte range 1 end */
+#define _DS2S	0x80	/* DBC 2nd byte range 2 start */
+#define _DS2E	0xFC	/* DBC 2nd byte range 2 end */
+
+#elif PF_CODE_PAGE == 936	/* Simplified Chinese GBK */
+#define _DF1S	0x81
+#define _DF1E	0xFE
+#define _DS1S	0x40
+#define _DS1E	0x7E
+#define _DS2S	0x80
+#define _DS2E	0xFE
+
+#elif PF_CODE_PAGE == 949	/* Korean */
+#define _DF1S	0x81
+#define _DF1E	0xFE
+#define _DS1S	0x41
+#define _DS1E	0x5A
+#define _DS2S	0x61
+#define _DS2E	0x7A
+#define _DS3S	0x81
+#define _DS3E	0xFE
+
+#elif PF_CODE_PAGE == 950	/* Traditional Chinese Big5 */
+#define _DF1S	0x81
+#define _DF1E	0xFE
+#define _DS1S	0x40
+#define _DS1E	0x7E
+#define _DS2S	0xA1
+#define _DS2E	0xFE
+
+#elif PF_CODE_PAGE == 437	/* U.S. */
+#define _EXCVT {0x80,0x9A,0x45,0x41,0x8E,0x41,0x8F,0x80,0x45,0x45,0x45,0x49,0x49,0x49,0x8E,0x8F, \
+				0x90,0x92,0x92,0x4F,0x99,0x4F,0x55,0x55,0x59,0x99,0x9A,0x9B,0x9C,0x9D,0x9E,0x9F, \
+				0x41,0x49,0x4F,0x55,0xA5,0xA5,0xA6,0xA7,0xA8,0xA9,0xAA,0xAB,0xAC,0xAD,0xAE,0xAF, \
+				0xB0,0xB1,0xB2,0xB3,0xB4,0xB5,0xB6,0xB7,0xB8,0xB9,0xBA,0xBB,0xBC,0xBD,0xBE,0xBF, \
+				0xC0,0xC1,0xC2,0xC3,0xC4,0xC5,0xC6,0xC7,0xC8,0xC9,0xCA,0xCB,0xCC,0xCD,0xCE,0xCF, \
+				0xD0,0xD1,0xD2,0xD3,0xD4,0xD5,0xD6,0xD7,0xD8,0xD9,0xDA,0xDB,0xDC,0xDD,0xDE,0xDF, \
+				0xE0,0xE1,0xE2,0xE3,0xE4,0xE5,0xE6,0xE7,0xE8,0xE9,0xEA,0xEB,0xEC,0xED,0xEE,0xEF, \
+				0xF0,0xF1,0xF2,0xF3,0xF4,0xF5,0xF6,0xF7,0xF8,0xF9,0xFA,0xFB,0xFC,0xFD,0xFE,0xFF}
+
+#elif PF_CODE_PAGE == 720	/* Arabic */
+#define _EXCVT {0x80,0x81,0x82,0x83,0x84,0x85,0x86,0x87,0x88,0x89,0x8A,0x8B,0x8C,0x8D,0x8E,0x8F, \
+				0x90,0x91,0x92,0x93,0x94,0x95,0x96,0x97,0x98,0x99,0x9A,0x9B,0x9C,0x9D,0x9E,0x9F, \
+				0xA0,0xA1,0xA2,0xA3,0xA4,0xA5,0xA6,0xA7,0xA8,0xA9,0xAA,0xAB,0xAC,0xAD,0xAE,0xAF, \
+				0xB0,0xB1,0xB2,0xB3,0xB4,0xB5,0xB6,0xB7,0xB8,0xB9,0xBA,0xBB,0xBC,0xBD,0xBE,0xBF, \
+				0xC0,0xC1,0xC2,0xC3,0xC4,0xC5,0xC6,0xC7,0xC8,0xC9,0xCA,0xCB,0xCC,0xCD,0xCE,0xCF, \
+				0xD0,0xD1,0xD2,0xD3,0xD4,0xD5,0xD6,0xD7,0xD8,0xD9,0xDA,0xDB,0xDC,0xDD,0xDE,0xDF, \
+				0xE0,0xE1,0xE2,0xE3,0xE4,0xE5,0xE6,0xE7,0xE8,0xE9,0xEA,0xEB,0xEC,0xED,0xEE,0xEF, \
+				0xF0,0xF1,0xF2,0xF3,0xF4,0xF5,0xF6,0xF7,0xF8,0xF9,0xFA,0xFB,0xFC,0xFD,0xFE,0xFF}
+
+#elif PF_CODE_PAGE == 737	/* Greek */
+#define _EXCVT {0x80,0x81,0x82,0x83,0x84,0x85,0x86,0x87,0x88,0x89,0x8A,0x8B,0x8C,0x8D,0x8E,0x8F, \
+				0x90,0x92,0x92,0x93,0x94,0x95,0x96,0x97,0x80,0x81,0x82,0x83,0x84,0x85,0x86,0x87, \
+				0x88,0x89,0x8A,0x8B,0x8C,0x8D,0x8E,0x8F,0x90,0x91,0xAA,0x92,0x93,0x94,0x95,0x96, \
+				0xB0,0xB1,0xB2,0xB3,0xB4,0xB5,0xB6,0xB7,0xB8,0xB9,0xBA,0xBB,0xBC,0xBD,0xBE,0xBF, \
+				0xC0,0xC1,0xC2,0xC3,0xC4,0xC5,0xC6,0xC7,0xC8,0xC9,0xCA,0xCB,0xCC,0xCD,0xCE,0xCF, \
+				0xD0,0xD1,0xD2,0xD3,0xD4,0xD5,0xD6,0xD7,0xD8,0xD9,0xDA,0xDB,0xDC,0xDD,0xDE,0xDF, \
+				0x97,0xEA,0xEB,0xEC,0xE4,0xED,0xEE,0xEF,0xF5,0xF0,0xEA,0xEB,0xEC,0xED,0xEE,0xEF, \
+				0xF0,0xF1,0xF2,0xF3,0xF4,0xF5,0xF6,0xF7,0xF8,0xF9,0xFA,0xFB,0xFC,0xFD,0xFE,0xFF}
+
+#elif PF_CODE_PAGE == 771	/* KBL */
+#define _EXCVT {0x80,0x81,0x82,0x83,0x84,0x85,0x86,0x87,0x88,0x89,0x8A,0x8B,0x8C,0x8D,0x8E,0x8F, \
+				0x90,0x91,0x92,0x93,0x94,0x95,0x96,0x97,0x98,0x99,0x9A,0x9B,0x9C,0x9D,0x9E,0x9F, \
+				0x80,0x81,0x82,0x83,0x84,0x85,0x86,0x87,0x88,0x89,0x8A,0x8B,0x8C,0x8D,0x8E,0x8F, \
+				0xB0,0xB1,0xB2,0xB3,0xB4,0xB5,0xB6,0xB7,0xB8,0xB9,0xBA,0xBB,0xBC,0xBD,0xBE,0xBF, \
+				0xC0,0xC1,0xC2,0xC3,0xC4,0xC5,0xC6,0xC7,0xC8,0xC9,0xCA,0xCB,0xCC,0xCD,0xCE,0xCF, \
+				0xD0,0xD1,0xD2,0xD3,0xD4,0xD5,0xD6,0xD7,0xD8,0xD9,0xDA,0xDB,0xDC,0xDC,0xDE,0xDE, \
+				0x90,0x91,0x92,0x93,0x94,0x95,0x96,0x97,0x98,0x99,0x9A,0x9B,0x9C,0x9D,0x9E,0x9F, \
+				0xF0,0xF0,0xF2,0xF2,0xF4,0xF4,0xF6,0xF6,0xF8,0xF8,0xFA,0xFA,0xFC,0xFC,0xFE,0xFF}
+
+#elif PF_CODE_PAGE == 775	/* Baltic */
+#define _EXCVT {0x80,0x9A,0x91,0xA0,0x8E,0x95,0x8F,0x80,0xAD,0xED,0x8A,0x8A,0xA1,0x8D,0x8E,0x8F, \
+				0x90,0x92,0x92,0xE2,0x99,0x95,0x96,0x97,0x97,0x99,0x9A,0x9D,0x9C,0x9D,0x9E,0x9F, \
+				0xA0,0xA1,0xE0,0xA3,0xA3,0xA5,0xA6,0xA7,0xA8,0xA9,0xAA,0xAB,0xAC,0xAD,0xAE,0xAF, \
+				0xB0,0xB1,0xB2,0xB3,0xB4,0xB5,0xB6,0xB7,0xB8,0xB9,0xBA,0xBB,0xBC,0xBD,0xBE,0xBF, \
+				0xC0,0xC1,0xC2,0xC3,0xC4,0xC5,0xC6,0xC7,0xC8,0xC9,0xCA,0xCB,0xCC,0xCD,0xCE,0xCF, \
+				0xB5,0xB6,0xB7,0xB8,0xBD,0xBE,0xC6,0xC7,0xA5,0xD9,0xDA,0xDB,0xDC,0xDD,0xDE,0xDF, \
+				0xE0,0xE1,0xE2,0xE3,0xE5,0xE5,0xE6,0xE3,0xE8,0xE8,0xEA,0xEA,0xEE,0xED,0xEE,0xEF, \
+				0xF0,0xF1,0xF2,0xF3,0xF4,0xF5,0xF6,0xF7,0xF8,0xF9,0xFA,0xFB,0xFC,0xFD,0xFE,0xFF}
+
+#elif PF_CODE_PAGE == 850	/* Latin 1 */
+#define _EXCVT {0x43,0x55,0x45,0x41,0x41,0x41,0x41,0x43,0x45,0x45,0x45,0x49,0x49,0x49,0x41,0x41, \
+				0x45,0x92,0x92,0x4F,0x4F,0x4F,0x55,0x55,0x59,0x4F,0x55,0x4F,0x9C,0x4F,0x9E,0x9F, \
+				0x41,0x49,0x4F,0x55,0xA5,0xA5,0xA6,0xA7,0xA8,0xA9,0xAA,0xAB,0xAC,0xAD,0xAE,0xAF, \
+				0xB0,0xB1,0xB2,0xB3,0xB4,0x41,0x41,0x41,0xB8,0xB9,0xBA,0xBB,0xBC,0xBD,0xBE,0xBF, \
+				0xC0,0xC1,0xC2,0xC3,0xC4,0xC5,0x41,0x41,0xC8,0xC9,0xCA,0xCB,0xCC,0xCD,0xCE,0xCF, \
+				0xD1,0xD1,0x45,0x45,0x45,0x49,0x49,0x49,0x49,0xD9,0xDA,0xDB,0xDC,0xDD,0x49,0xDF, \
+				0x4F,0xE1,0x4F,0x4F,0x4F,0x4F,0xE6,0xE8,0xE8,0x55,0x55,0x55,0x59,0x59,0xEE,0xEF, \
+				0xF0,0xF1,0xF2,0xF3,0xF4,0xF5,0xF6,0xF7,0xF8,0xF9,0xFA,0xFB,0xFC,0xFD,0xFE,0xFF}
+
+#elif PF_CODE_PAGE == 852	/* Latin 2 */
+#define _EXCVT {0x80,0x9A,0x90,0xB6,0x8E,0xDE,0x8F,0x80,0x9D,0xD3,0x8A,0x8A,0xD7,0x8D,0x8E,0x8F, \
+				0x90,0x91,0x91,0xE2,0x99,0x95,0x95,0x97,0x97,0x99,0x9A,0x9B,0x9B,0x9D,0x9E,0xAC, \
+				0xB5,0xD6,0xE0,0xE9,0xA4,0xA4,0xA6,0xA6,0xA8,0xA8,0xAA,0x8D,0xAC,0xB8,0xAE,0xAF, \
+				0xB0,0xB1,0xB2,0xB3,0xB4,0xB5,0xB6,0xB7,0xB8,0xB9,0xBA,0xBB,0xBC,0xBD,0xBD,0xBF, \
+				0xC0,0xC1,0xC2,0xC3,0xC4,0xC5,0xC6,0xC6,0xC8,0xC9,0xCA,0xCB,0xCC,0xCD,0xCE,0xCF, \
+				0xD1,0xD1,0xD2,0xD3,0xD2,0xD5,0xD6,0xD7,0xB7,0xD9,0xDA,0xDB,0xDC,0xDD,0xDE,0xDF, \
+				0xE0,0xE1,0xE2,0xE3,0xE3,0xD5,0xE6,0xE6,0xE8,0xE9,0xE8,0xEB,0xED,0xED,0xDD,0xEF, \
+				0xF0,0xF1,0xF2,0xF3,0xF4,0xF5,0xF6,0xF7,0xF8,0xF9,0xFA,0xEB,0xFC,0xFC,0xFE,0xFF}
+
+#elif PF_CODE_PAGE == 855	/* Cyrillic */
+#define _EXCVT {0x81,0x81,0x83,0x83,0x85,0x85,0x87,0x87,0x89,0x89,0x8B,0x8B,0x8D,0x8D,0x8F,0x8F, \
+				0x91,0x91,0x93,0x93,0x95,0x95,0x97,0x97,0x99,0x99,0x9B,0x9B,0x9D,0x9D,0x9F,0x9F, \
+				0xA1,0xA1,0xA3,0xA3,0xA5,0xA5,0xA7,0xA7,0xA9,0xA9,0xAB,0xAB,0xAD,0xAD,0xAE,0xAF, \
+				0xB0,0xB1,0xB2,0xB3,0xB4,0xB6,0xB6,0xB8,0xB8,0xB9,0xBA,0xBB,0xBC,0xBE,0xBE,0xBF, \
+				0xC0,0xC1,0xC2,0xC3,0xC4,0xC5,0xC7,0xC7,0xC8,0xC9,0xCA,0xCB,0xCC,0xCD,0xCE,0xCF, \
+				0xD1,0xD1,0xD3,0xD3,0xD5,0xD5,0xD7,0xD7,0xDD,0xD9,0xDA,0xDB,0xDC,0xDD,0xE0,0xDF, \
+				0xE0,0xE2,0xE2,0xE4,0xE4,0xE6,0xE6,0xE8,0xE8,0xEA,0xEA,0xEC,0xEC,0xEE,0xEE,0xEF, \
+				0xF0,0xF2,0xF2,0xF4,0xF4,0xF6,0xF6,0xF8,0xF8,0xFA,0xFA,0xFC,0xFC,0xFD,0xFE,0xFF}
+
+#elif PF_CODE_PAGE == 857	/* Turkish */
+#define _EXCVT {0x80,0x9A,0x90,0xB6,0x8E,0xB7,0x8F,0x80,0xD2,0xD3,0xD4,0xD8,0xD7,0x49,0x8E,0x8F, \
+				0x90,0x92,0x92,0xE2,0x99,0xE3,0xEA,0xEB,0x98,0x99,0x9A,0x9D,0x9C,0x9D,0x9E,0x9E, \
+				0xB5,0xD6,0xE0,0xE9,0xA5,0xA5,0xA6,0xA6,0xA8,0xA9,0xAA,0xAB,0xAC,0xAD,0xAE,0xAF, \
+				0xB0,0xB1,0xB2,0xB3,0xB4,0xB5,0xB6,0xB7,0xB8,0xB9,0xBA,0xBB,0xBC,0xBD,0xBE,0xBF, \
+				0xC0,0xC1,0xC2,0xC3,0xC4,0xC5,0xC7,0xC7,0xC8,0xC9,0xCA,0xCB,0xCC,0xCD,0xCE,0xCF, \
+				0xD0,0xD1,0xD2,0xD3,0xD4,0x49,0xD6,0xD7,0xD8,0xD9,0xDA,0xDB,0xDC,0xDD,0xDE,0xDF, \
+				0xE0,0xE1,0xE2,0xE3,0xE5,0xE5,0xE6,0xE7,0xE8,0xE9,0xEA,0xEB,0xDE,0xED,0xEE,0xEF, \
+
+#elif PF_CODE_PAGE == 860	/* Portuguese */
+#define _EXCVT {0x80,0x9A,0x90,0x8F,0x8E,0x91,0x86,0x80,0x89,0x89,0x92,0x8B,0x8C,0x98,0x8E,0x8F, \
+				0x90,0x91,0x92,0x8C,0x99,0xA9,0x96,0x9D,0x98,0x99,0x9A,0x9B,0x9C,0x9D,0x9E,0x9F, \
+				0x86,0x8B,0x9F,0x96,0xA5,0xA5,0xA6,0xA7,0xA8,0xA9,0xAA,0xAB,0xAC,0xAD,0xAE,0xAF, \
+				0xB0,0xB1,0xB2,0xB3,0xB4,0xB5,0xB6,0xB7,0xB8,0xB9,0xBA,0xBB,0xBC,0xBD,0xBE,0xBF, \
+				0xC0,0xC1,0xC2,0xC3,0xC4,0xC5,0xC6,0xC7,0xC8,0xC9,0xCA,0xCB,0xCC,0xCD,0xCE,0xCF, \
+				0xD0,0xD1,0xD2,0xD3,0xD4,0xD5,0xD6,0xD7,0xD8,0xD9,0xDA,0xDB,0xDC,0xDD,0xDE,0xDF, \
+				0xE0,0xE1,0xE2,0xE3,0xE4,0xE5,0xE6,0xE7,0xE8,0xE9,0xEA,0xEB,0xEC,0xED,0xEE,0xEF, \
+				0xF0,0xF1,0xF2,0xF3,0xF4,0xF5,0xF6,0xF7,0xF8,0xF9,0xFA,0xFB,0xFC,0xFD,0xFE,0xFF}
+
+#elif PF_CODE_PAGE == 861	/* Icelandic */
+#define _EXCVT {0x80,0x9A,0x90,0x41,0x8E,0x41,0x8F,0x80,0x45,0x45,0x45,0x8B,0x8B,0x8D,0x8E,0x8F, \
+				0x90,0x92,0x92,0x4F,0x99,0x8D,0x55,0x97,0x97,0x99,0x9A,0x9D,0x9C,0x9D,0x9E,0x9F, \
+				0xA4,0xA5,0xA6,0xA7,0xA4,0xA5,0xA6,0xA7,0xA8,0xA9,0xAA,0xAB,0xAC,0xAD,0xAE,0xAF, \
+				0xB0,0xB1,0xB2,0xB3,0xB4,0xB5,0xB6,0xB7,0xB8,0xB9,0xBA,0xBB,0xBC,0xBD,0xBE,0xBF, \
+				0xC0,0xC1,0xC2,0xC3,0xC4,0xC5,0xC6,0xC7,0xC8,0xC9,0xCA,0xCB,0xCC,0xCD,0xCE,0xCF, \
+				0xD0,0xD1,0xD2,0xD3,0xD4,0xD5,0xD6,0xD7,0xD8,0xD9,0xDA,0xDB,0xDC,0xDD,0xDE,0xDF, \
+				0xE0,0xE1,0xE2,0xE3,0xE4,0xE5,0xE6,0xE7,0xE8,0xE9,0xEA,0xEB,0xEC,0xED,0xEE,0xEF, \
+				0xF0,0xF1,0xF2,0xF3,0xF4,0xF5,0xF6,0xF7,0xF8,0xF9,0xFA,0xFB,0xFC,0xFD,0xFE,0xFF}
+
+#elif PF_CODE_PAGE == 862	/* Hebrew */
+#define _EXCVT {0x80,0x81,0x82,0x83,0x84,0x85,0x86,0x87,0x88,0x89,0x8A,0x8B,0x8C,0x8D,0x8E,0x8F, \
+				0x90,0x91,0x92,0x93,0x94,0x95,0x96,0x97,0x98,0x99,0x9A,0x9B,0x9C,0x9D,0x9E,0x9F, \
+				0x41,0x49,0x4F,0x55,0xA5,0xA5,0xA6,0xA7,0xA8,0xA9,0xAA,0xAB,0xAC,0xAD,0xAE,0xAF, \
+				0xB0,0xB1,0xB2,0xB3,0xB4,0xB5,0xB6,0xB7,0xB8,0xB9,0xBA,0xBB,0xBC,0xBD,0xBE,0xBF, \
+				0xC0,0xC1,0xC2,0xC3,0xC4,0xC5,0xC6,0xC7,0xC8,0xC9,0xCA,0xCB,0xCC,0xCD,0xCE,0xCF, \
+				0xD0,0xD1,0xD2,0xD3,0xD4,0xD5,0xD6,0xD7,0xD8,0xD9,0xDA,0xDB,0xDC,0xDD,0xDE,0xDF, \
+				0xE0,0xE1,0xE2,0xE3,0xE4,0xE5,0xE6,0xE7,0xE8,0xE9,0xEA,0xEB,0xEC,0xED,0xEE,0xEF, \
+				0xF0,0xF1,0xF2,0xF3,0xF4,0xF5,0xF6,0xF7,0xF8,0xF9,0xFA,0xFB,0xFC,0xFD,0xFE,0xFF}
+
+#elif PF_CODE_PAGE == 863	/* Canadian French */
+#define _EXCVT {0x43,0x55,0x45,0x41,0x41,0x41,0x86,0x43,0x45,0x45,0x45,0x49,0x49,0x8D,0x41,0x8F, \
+				0x45,0x45,0x45,0x4F,0x45,0x49,0x55,0x55,0x98,0x4F,0x55,0x9B,0x9C,0x55,0x55,0x9F, \
+				0xA0,0xA1,0x4F,0x55,0xA4,0xA5,0xA6,0xA7,0x49,0xA9,0xAA,0xAB,0xAC,0xAD,0xAE,0xAF, \
+				0xB0,0xB1,0xB2,0xB3,0xB4,0xB5,0xB6,0xB7,0xB8,0xB9,0xBA,0xBB,0xBC,0xBD,0xBE,0xBF, \
+				0xC0,0xC1,0xC2,0xC3,0xC4,0xC5,0xC6,0xC7,0xC8,0xC9,0xCA,0xCB,0xCC,0xCD,0xCE,0xCF, \
+				0xD0,0xD1,0xD2,0xD3,0xD4,0xD5,0xD6,0xD7,0xD8,0xD9,0xDA,0xDB,0xDC,0xDD,0xDE,0xDF, \
+				0xE0,0xE1,0xE2,0xE3,0xE4,0xE5,0xE6,0xE7,0xE8,0xE9,0xEA,0xEB,0xEC,0xED,0xEE,0xEF, \
+				0xF0,0xF1,0xF2,0xF3,0xF4,0xF5,0xF6,0xF7,0xF8,0xF9,0xFA,0xFB,0xFC,0xFD,0xFE,0xFF}
+
+#elif PF_CODE_PAGE == 864	/* Arabic */
+#define _EXCVT {0x80,0x9A,0x45,0x41,0x8E,0x41,0x8F,0x80,0x45,0x45,0x45,0x49,0x49,0x49,0x8E,0x8F, \
+				0x90,0x92,0x92,0x4F,0x99,0x4F,0x55,0x55,0x59,0x99,0x9A,0x9B,0x9C,0x9D,0x9E,0x9F, \
+				0x41,0x49,0x4F,0x55,0xA5,0xA5,0xA6,0xA7,0xA8,0xA9,0xAA,0xAB,0xAC,0xAD,0xAE,0xAF, \
+				0xB0,0xB1,0xB2,0xB3,0xB4,0xB5,0xB6,0xB7,0xB8,0xB9,0xBA,0xBB,0xBC,0xBD,0xBE,0xBF, \
+				0xC0,0xC1,0xC2,0xC3,0xC4,0xC5,0xC6,0xC7,0xC8,0xC9,0xCA,0xCB,0xCC,0xCD,0xCE,0xCF, \
+				0xD0,0xD1,0xD2,0xD3,0xD4,0xD5,0xD6,0xD7,0xD8,0xD9,0xDA,0xDB,0xDC,0xDD,0xDE,0xDF, \
+				0xE0,0xE1,0xE2,0xE3,0xE4,0xE5,0xE6,0xE7,0xE8,0xE9,0xEA,0xEB,0xEC,0xED,0xEE,0xEF, \
+				0xF0,0xF1,0xF2,0xF3,0xF4,0xF5,0xF6,0xF7,0xF8,0xF9,0xFA,0xFB,0xFC,0xFD,0xFE,0xFF}
+
+#elif PF_CODE_PAGE == 865	/* Nordic */
+#define _EXCVT {0x80,0x9A,0x90,0x41,0x8E,0x41,0x8F,0x80,0x45,0x45,0x45,0x49,0x49,0x49,0x8E,0x8F, \
+				0x90,0x92,0x92,0x4F,0x99,0x4F,0x55,0x55,0x59,0x99,0x9A,0x9B,0x9C,0x9D,0x9E,0x9F, \
+				0x41,0x49,0x4F,0x55,0xA5,0xA5,0xA6,0xA7,0xA8,0xA9,0xAA,0xAB,0xAC,0xAD,0xAE,0xAF, \
+				0xB0,0xB1,0xB2,0xB3,0xB4,0xB5,0xB6,0xB7,0xB8,0xB9,0xBA,0xBB,0xBC,0xBD,0xBE,0xBF, \
+				0xC0,0xC1,0xC2,0xC3,0xC4,0xC5,0xC6,0xC7,0xC8,0xC9,0xCA,0xCB,0xCC,0xCD,0xCE,0xCF, \
+				0xD0,0xD1,0xD2,0xD3,0xD4,0xD5,0xD6,0xD7,0xD8,0xD9,0xDA,0xDB,0xDC,0xDD,0xDE,0xDF, \
+				0xE0,0xE1,0xE2,0xE3,0xE4,0xE5,0xE6,0xE7,0xE8,0xE9,0xEA,0xEB,0xEC,0xED,0xEE,0xEF, \
+				0xF0,0xF1,0xF2,0xF3,0xF4,0xF5,0xF6,0xF7,0xF8,0xF9,0xFA,0xFB,0xFC,0xFD,0xFE,0xFF}
+
+#elif PF_CODE_PAGE == 866	/* Russian */
+#define _EXCVT {0x80,0x81,0x82,0x83,0x84,0x85,0x86,0x87,0x88,0x89,0x8A,0x8B,0x8C,0x8D,0x8E,0x8F, \
+				0x90,0x91,0x92,0x93,0x94,0x95,0x96,0x97,0x98,0x99,0x9A,0x9B,0x9C,0x9D,0x9E,0x9F, \
+				0x80,0x81,0x82,0x83,0x84,0x85,0x86,0x87,0x88,0x89,0x8A,0x8B,0x8C,0x8D,0x8E,0x8F, \
+				0xB0,0xB1,0xB2,0xB3,0xB4,0xB5,0xB6,0xB7,0xB8,0xB9,0xBA,0xBB,0xBC,0xBD,0xBE,0xBF, \
+				0xC0,0xC1,0xC2,0xC3,0xC4,0xC5,0xC6,0xC7,0xC8,0xC9,0xCA,0xCB,0xCC,0xCD,0xCE,0xCF, \
+				0xD0,0xD1,0xD2,0xD3,0xD4,0xD5,0xD6,0xD7,0xD8,0xD9,0xDA,0xDB,0xDC,0xDD,0xDE,0xDF, \
+				0x90,0x91,0x92,0x93,0x94,0x95,0x96,0x97,0x98,0x99,0x9A,0x9B,0x9C,0x9D,0x9E,0x9F, \
+				0xF0,0xF0,0xF2,0xF2,0xF4,0xF4,0xF6,0xF6,0xF8,0xF9,0xFA,0xFB,0xFC,0xFD,0xFE,0xFF}
+
+#elif PF_CODE_PAGE == 869	/* Greek 2 */
+#define _EXCVT {0x80,0x81,0x82,0x83,0x84,0x85,0x86,0x87,0x88,0x89,0x8A,0x8B,0x8C,0x8D,0x8E,0x8F, \
+				0x90,0x91,0x92,0x93,0x94,0x95,0x96,0x97,0x98,0x99,0x9A,0x86,0x9C,0x8D,0x8F,0x90, \
+				0x91,0x90,0x92,0x95,0xA4,0xA5,0xA6,0xA7,0xA8,0xA9,0xAA,0xAB,0xAC,0xAD,0xAE,0xAF, \
+				0xB0,0xB1,0xB2,0xB3,0xB4,0xB5,0xB6,0xB7,0xB8,0xB9,0xBA,0xBB,0xBC,0xBD,0xBE,0xBF, \
+				0xC0,0xC1,0xC2,0xC3,0xC4,0xC5,0xC6,0xC7,0xC8,0xC9,0xCA,0xCB,0xCC,0xCD,0xCE,0xCF, \
+				0xD0,0xD1,0xD2,0xD3,0xD4,0xD5,0xA4,0xA5,0xA6,0xD9,0xDA,0xDB,0xDC,0xA7,0xA8,0xDF, \
+				0xA9,0xAA,0xAC,0xAD,0xB5,0xB6,0xB7,0xB8,0xBD,0xBE,0xC6,0xC7,0xCF,0xCF,0xD0,0xEF, \
+				0xF0,0xF1,0xD1,0xD2,0xD3,0xF5,0xD4,0xF7,0xF8,0xF9,0xD5,0x96,0x95,0x98,0xFE,0xFF}
+
+#else
+#error Unknown code page.
+
+#endif
+
+
+
+/* Character code support macros */
+
+#define IsUpper(c)	(((c)>='A')&&((c)<='Z'))
+#define IsLower(c)	(((c)>='a')&&((c)<='z'))
+
+#if PF_USE_LCC && !defined(_EXCVT)	/* DBCS configuration */
+
+#ifdef _DF2S	/* Two 1st byte areas */
+#define IsDBCS1(c)	(((BYTE)(c) >= _DF1S && (BYTE)(c) <= _DF1E) || ((BYTE)(c) >= _DF2S && (BYTE)(c) <= _DF2E))
+#else			/* One 1st byte area */
+#define IsDBCS1(c)	((BYTE)(c) >= _DF1S && (BYTE)(c) <= _DF1E)
+#endif
+
+#ifdef _DS3S	/* Three 2nd byte areas */
+#define IsDBCS2(c)	(((BYTE)(c) >= _DS1S && (BYTE)(c) <= _DS1E) || ((BYTE)(c) >= _DS2S && (BYTE)(c) <= _DS2E) || ((BYTE)(c) >= _DS3S && (BYTE)(c) <= _DS3E))
+#else			/* Two 2nd byte areas */
+#define IsDBCS2(c)	(((BYTE)(c) >= _DS1S && (BYTE)(c) <= _DS1E) || ((BYTE)(c) >= _DS2S && (BYTE)(c) <= _DS2E))
+#endif
+
+#else			/* SBCS configuration */
+
+#define IsDBCS1(c)	0
+#define IsDBCS2(c)	0
+
+#endif /* _EXCVT */
+
+
+/* FatFs refers the members in the FAT structures with byte offset instead
+/ of structure member because there are incompatibility of the packing option
+/ between various compilers. */
+
+#define BS_jmpBoot			0
+#define BS_OEMName			3
+#define BPB_BytsPerSec		11
+#define BPB_SecPerClus		13
+#define BPB_RsvdSecCnt		14
+#define BPB_NumFATs			16
+#define BPB_RootEntCnt		17
+#define BPB_TotSec16		19
+#define BPB_Media			21
+#define BPB_FATSz16			22
+#define BPB_SecPerTrk		24
+#define BPB_NumHeads		26
+#define BPB_HiddSec			28
+#define BPB_TotSec32		32
+#define BS_55AA				510
+
+#define BS_DrvNum			36
+#define BS_BootSig			38
+#define BS_VolID			39
+#define BS_VolLab			43
+#define BS_FilSysType		54
+
+#define BPB_FATSz32			36
+#define BPB_ExtFlags		40
+#define BPB_FSVer			42
+#define BPB_RootClus		44
+#define BPB_FSInfo			48
+#define BPB_BkBootSec		50
+#define BS_DrvNum32			64
+#define BS_BootSig32		66
+#define BS_VolID32			67
+#define BS_VolLab32			71
+#define BS_FilSysType32		82
+
+#define MBR_Table			446
+
+#define	DIR_Name			0
+#define	DIR_Attr			11
+#define	DIR_NTres			12
+#define	DIR_CrtTime			14
+#define	DIR_CrtDate			16
+#define	DIR_FstClusHI		20
+#define	DIR_WrtTime			22
+#define	DIR_WrtDate			24
+#define	DIR_FstClusLO		26
+#define	DIR_FileSize		28
+
+
+
+
+/*--------------------------------------------------------------------------
+
+   Private Functions
+
+---------------------------------------------------------------------------*/
+
+
+static FATFS *FatFs;	/* Pointer to the file system object (logical drive) */
+
+
+/*-----------------------------------------------------------------------*/
+/* Load multi-byte word in the FAT structure                             */
+/*-----------------------------------------------------------------------*/
+
+static WORD ld_word (const BYTE* ptr)	/*	 Load a 2-byte little-endian word */
 {
-   // Typecast src and dest addresses to (char *)
-   char *csrc = (char *)src;
-   char *cdest = (char *)dest;
-  
-   // Copy contents of src[] to dest[]
-   for (int i=0; i<n; i++)
-       cdest[i] = csrc[i];
+	WORD rv;
+
+	rv = ptr[1];
+	rv = rv << 8 | ptr[0];
+	return rv;
 }
 
-void  *memset(void *b, int c, int len)
+static DWORD ld_dword (const BYTE* ptr)	/* Load a 4-byte little-endian word */
 {
-  int           i;
-  unsigned char *p = b;
-  i = 0;
-  while(len > 0)
-    {
-      *p = c;
-      p++;
-      len--;
-    }
-  return(b);
-}
+	DWORD rv;
 
-size_t strlen(const char *str)
-{
-        const char *s;
-
-        for (s = str; *s; ++s)
-                ;
-        return (s - str);
-}
-
-int memcmp(const void *s1, const void *s2, int len)
-{
-    unsigned char *p = s1;
-    unsigned char *q = s2;
-    int charCompareStatus = 0;
-    //If both pointer pointing same memory block
-    if (s1 == s2)
-    {
-        return charCompareStatus;
-    }
-    while (len > 0)
-    {
-        if (*p != *q)
-        {
-            //compare the mismatching character
-            charCompareStatus = (*p >*q)?1:-1;
-            break;
-        }
-        len--;
-        p++;
-        q++;
-    }
-    return charCompareStatus;
-}
-
-char *strncpy(char *dst, const char *src, size_t n)
-{
-   int i;
-   char *temp;
-   temp = dst;
-   for (i = 0; i < n; i++)
-      *dst++ = *src++;
-   return temp;
-}
-
-int strcmp(const char *X, const char *Y)
-{
-    while(*X)
-    {
-        // if characters differ or end of second string is reached
-        if (*X != *Y)
-            break;
- 
-        // move to next pair of characters
-        X++;
-        Y++;
-    }
- 
-    // return the ASCII difference after converting char* to unsigned char*
-    return *(const unsigned char*)X - *(const unsigned char*)Y;
-}
-
-struct div_t {
-  int quot;
-  int rem;
-} ;
-
-struct ldiv_t {
-  long int quot;
-  long int rem;
-} ;
-
-struct div_t div(int numer, int denom)
-{
-    struct div_t out;
-    out.quot = numer/denom;
-    out.rem = numer%denom;
-}
-
-struct ldiv_t ldiv(long int numer, long int denom)
-{
-    struct div_t out;
-    out.quot = numer/denom;
-    out.rem = numer%denom;
-}
-
-char * strcpy(char *strDest, const char *strSrc)
-{
-    char *temp = strDest;
-    while(*strDest++ = *strSrc++); // or while((*strDest++=*strSrc++) != '\0');
-    return temp;
+	rv = ptr[3];
+	rv = rv << 8 | ptr[2];
+	rv = rv << 8 | ptr[1];
+	rv = rv << 8 | ptr[0];
+	return rv;
 }
 
 
 
+/*-----------------------------------------------------------------------*/
+/* String functions                                                      */
+/*-----------------------------------------------------------------------*/
 
-/*
-	Get starting sector# of specified partition on drive #unit
-	NOTE: This code ASSUMES an MBR on the disk.
-	scratchsector should point to a SECTOR_SIZE scratch area
-	Returns 0xffffffff for any error.
-	If pactive is non-NULL, this function also returns the partition active flag.
-	If pptype is non-NULL, this function also returns the partition type.
-	If psize is non-NULL, this function also returns the partition size.
-*/
-uint32_t DFS_GetPtnStart(uint8_t unit, uint8_t *scratchsector, uint8_t pnum, uint8_t *pactive, uint8_t *pptype, uint32_t *psize)
-{
-	uint32_t result;
-	PMBR mbr = (PMBR) scratchsector;
+/* Fill memory block */
+static void mem_set (void* dst, int val, int cnt) {
+	char *d = (char*)dst;
+	while (cnt--) *d++ = (char)val;
+}
 
-	// DOS ptable supports maximum 4 partitions
-	if (pnum > 3)
-		return DFS_ERRMISC;
-
-	// Read MBR from target media
-	if (DFS_ReadSector(unit,scratchsector,0,1)) {
-		return DFS_ERRMISC;
-	}
-
-	result = (uint32_t) mbr->ptable[pnum].start_0 |
-	  (((uint32_t) mbr->ptable[pnum].start_1) << 8) |
-	  (((uint32_t) mbr->ptable[pnum].start_2) << 16) |
-	  (((uint32_t) mbr->ptable[pnum].start_3) << 24);
-
-	if (pactive)
-		*pactive = mbr->ptable[pnum].active;
-
-	if (pptype)
-		*pptype = mbr->ptable[pnum].type;
-
-	if (psize)
-		*psize = (uint32_t) mbr->ptable[pnum].size_0 |
-		  (((uint32_t) mbr->ptable[pnum].size_1) << 8) |
-		  (((uint32_t) mbr->ptable[pnum].size_2) << 16) |
-		  (((uint32_t) mbr->ptable[pnum].size_3) << 24);
-
-	return result;
+/* Compare memory block */
+static int mem_cmp (const void* dst, const void* src, int cnt) {
+	const char *d = (const char *)dst, *s = (const char *)src;
+	int r = 0;
+	while (cnt-- && (r = *d++ - *s++) == 0) ;
+	return r;
 }
 
 
-/*
-	Retrieve volume info from BPB and store it in a VOLINFO structure
-	You must provide the unit and starting sector of the filesystem, and
-	a pointer to a sector buffer for scratch
-	Attempts to read BPB and glean information about the FS from that.
-	Returns 0 OK, nonzero for any error.
-*/
-uint32_t DFS_GetVolInfo(uint8_t unit, uint8_t *scratchsector, uint32_t startsector, PVOLINFO volinfo)
+
+/*-----------------------------------------------------------------------*/
+/* FAT access - Read value of a FAT entry                                */
+/*-----------------------------------------------------------------------*/
+
+static CLUST get_fat (	/* 1:IO error, Else:Cluster status */
+	CLUST clst	/* Cluster# to get the link information */
+)
 {
-	PLBR lbr = (PLBR) scratchsector;
-	volinfo->unit = unit;
-	volinfo->startsector = startsector;
+	BYTE buf[4];
+	FATFS *fs = FatFs;
+#if PF_FS_FAT12
+	UINT wc, bc, ofs;
+#endif
 
-	if(DFS_ReadSector(unit,scratchsector,startsector,1))
-		return DFS_ERRMISC;
+	if (clst < 2 || clst >= fs->n_fatent) return 1;	/* Range check */
 
-// tag: OEMID, refer dosfs.h
-//	strncpy(volinfo->oemid, lbr->oemid, 8);
-//	volinfo->oemid[8] = 0;
-
-	volinfo->secperclus = lbr->bpb.secperclus;
-	volinfo->reservedsecs = (uint16_t) lbr->bpb.reserved_l |
-		  (((uint16_t) lbr->bpb.reserved_h) << 8);
-
-	volinfo->numsecs =  (uint16_t) lbr->bpb.sectors_s_l |
-		  (((uint16_t) lbr->bpb.sectors_s_h) << 8);
-
-	if (!volinfo->numsecs)
-		volinfo->numsecs = (uint32_t) lbr->bpb.sectors_l_0 |
-		  (((uint32_t) lbr->bpb.sectors_l_1) << 8) |
-		  (((uint32_t) lbr->bpb.sectors_l_2) << 16) |
-		  (((uint32_t) lbr->bpb.sectors_l_3) << 24);
-
-	// If secperfat is 0, we must be in a FAT32 volume; get secperfat
-	// from the FAT32 EBPB. The volume label and system ID string are also
-	// in different locations for FAT12/16 vs FAT32.
-	volinfo->secperfat =  (uint16_t) lbr->bpb.secperfat_l |
-		  (((uint16_t) lbr->bpb.secperfat_h) << 8);
-	if (!volinfo->secperfat) {
-		volinfo->secperfat = (uint32_t) lbr->ebpb.ebpb32.fatsize_0 |
-		  (((uint32_t) lbr->ebpb.ebpb32.fatsize_1) << 8) |
-		  (((uint32_t) lbr->ebpb.ebpb32.fatsize_2) << 16) |
-		  (((uint32_t) lbr->ebpb.ebpb32.fatsize_3) << 24);
-
-		memcpy(volinfo->label, lbr->ebpb.ebpb32.label, 11);
-		volinfo->label[11] = 0;
-	
-// tag: OEMID, refer dosfs.h
-//		memcpy(volinfo->system, lbr->ebpb.ebpb32.system, 8);
-//		volinfo->system[8] = 0; 
-	}
-	else {
-		memcpy(volinfo->label, lbr->ebpb.ebpb.label, 11);
-		volinfo->label[11] = 0;
-	
-// tag: OEMID, refer dosfs.h
-//		memcpy(volinfo->system, lbr->ebpb.ebpb.system, 8);
-//		volinfo->system[8] = 0; 
-	}
-
-	// note: if rootentries is 0, we must be in a FAT32 volume.
-	volinfo->rootentries =  (uint16_t) lbr->bpb.rootentries_l |
-		  (((uint16_t) lbr->bpb.rootentries_h) << 8);
-
-	// after extracting raw info we perform some useful precalculations
-	volinfo->fat1 = startsector + volinfo->reservedsecs;
-
-	// The calculation below is designed to round up the root directory size for FAT12/16
-	// and to simply ignore the root directory for FAT32, since it's a normal, expandable
-	// file in that situation.
-	if (volinfo->rootentries) {
-		volinfo->rootdir = volinfo->fat1 + (volinfo->secperfat * 2);
-		volinfo->dataarea = volinfo->rootdir + (((volinfo->rootentries * 32) + (SECTOR_SIZE - 1)) / SECTOR_SIZE);
-	}
-	else {
-		volinfo->dataarea = volinfo->fat1 + (volinfo->secperfat * 2);
-		volinfo->rootdir = (uint32_t) lbr->ebpb.ebpb32.root_0 |
-		  (((uint32_t) lbr->ebpb.ebpb32.root_1) << 8) |
-		  (((uint32_t) lbr->ebpb.ebpb32.root_2) << 16) |
-		  (((uint32_t) lbr->ebpb.ebpb32.root_3) << 24);
-	}
-
-	// Calculate number of clusters in data area and infer FAT type from this information.
-	volinfo->numclusters = (volinfo->numsecs - volinfo->dataarea) / volinfo->secperclus;
-	if (volinfo->numclusters < 4085)
-		volinfo->filesystem = FAT12;
-	else if (volinfo->numclusters < 65525)
-		volinfo->filesystem = FAT16;
-	else
-		volinfo->filesystem = FAT32;
-
-	return DFS_OK;
-}
-
-/*
-	Fetch FAT entry for specified cluster number
-	You must provide a scratch buffer for one sector (SECTOR_SIZE) and a populated VOLINFO
-	Returns a FAT32 BAD_CLUSTER value for any error, otherwise the contents of the desired
-	FAT entry.
-	scratchcache should point to a UINT32. This variable caches the physical sector number
-	last read into the scratch buffer for performance enhancement reasons.
-*/
-uint32_t DFS_GetFAT(PVOLINFO volinfo, uint8_t *scratch, uint32_t *scratchcache, uint32_t cluster)
-{
-	uint32_t offset, sector, result;
-
-	if (volinfo->filesystem == FAT12) {
-		offset = cluster + (cluster / 2);
-	}
-	else if (volinfo->filesystem == FAT16) {
-		offset = cluster * 2;
-	}
-	else if (volinfo->filesystem == FAT32) {
-		offset = cluster * 4;
-	}
-	else
-		return 0x0ffffff7;	// FAT32 bad cluster	
-
-	// at this point, offset is the BYTE offset of the desired sector from the start
-	// of the FAT. Calculate the physical sector containing this FAT entry.
-	sector = ldiv(offset, SECTOR_SIZE).quot + volinfo->fat1;
-
-	// If this is not the same sector we last read, then read it into RAM
-	if (sector != *scratchcache) {
-		if(DFS_ReadSector(volinfo->unit, scratch, sector, 1)) {
-			// avoid anyone assuming that this cache value is still valid, which
-			// might cause disk corruption
-			*scratchcache = 0;
-			return 0x0ffffff7;	// FAT32 bad cluster	
+	switch (fs->fs_type) {
+#if PF_FS_FAT12
+	case FS_FAT12 : {
+		bc = (UINT)clst; bc += bc / 2;
+		ofs = bc % 512; bc /= 512;
+		if (ofs != 511) {
+			if (disk_readp(buf, fs->fatbase + bc, ofs, 2)) break;
+		} else {
+			if (disk_readp(buf, fs->fatbase + bc, 511, 1)) break;
+			if (disk_readp(buf+1, fs->fatbase + bc + 1, 0, 1)) break;
 		}
-		*scratchcache = sector;
+		wc = ld_word(buf);
+		return (clst & 1) ? (wc >> 4) : (wc & 0xFFF);
+	}
+#endif
+#if PF_FS_FAT16
+	case FS_FAT16 :
+		if (disk_readp(buf, fs->fatbase + clst / 256, ((UINT)clst % 256) * 2, 2)) break;
+		return ld_word(buf);
+#endif
+#if PF_FS_FAT32
+	case FS_FAT32 :
+		if (disk_readp(buf, fs->fatbase + clst / 128, ((UINT)clst % 128) * 4, 4)) break;
+		return ld_dword(buf) & 0x0FFFFFFF;
+#endif
 	}
 
-	// At this point, we "merely" need to extract the relevant entry.
-	// This is easy for FAT16 and FAT32, but a royal PITA for FAT12 as a single entry
-	// may span a sector boundary. The normal way around this is always to read two
-	// FAT sectors, but that luxury is (by design intent) unavailable to DOSFS.
-	offset = ldiv(offset, SECTOR_SIZE).rem;
+	return 1;	/* An error occured at the disk I/O layer */
+}
 
-	if (volinfo->filesystem == FAT12) {
-		// Special case for sector boundary - Store last byte of current sector.
-		// Then read in the next sector and put the first byte of that sector into
-		// the high byte of result.
-		if (offset == SECTOR_SIZE - 1) {
-			result = (uint32_t) scratch[offset];
-			sector++;
-			if(DFS_ReadSector(volinfo->unit, scratch, sector, 1)) {
-				// avoid anyone assuming that this cache value is still valid, which
-				// might cause disk corruption
-				*scratchcache = 0;
-				return 0x0ffffff7;	// FAT32 bad cluster	
+
+
+
+/*-----------------------------------------------------------------------*/
+/* Get sector# from cluster# / Get cluster field from directory entry    */
+/*-----------------------------------------------------------------------*/
+
+static DWORD clust2sect (	/* !=0: Sector number, 0: Failed - invalid cluster# */
+	CLUST clst		/* Cluster# to be converted */
+)
+{
+	FATFS *fs = FatFs;
+
+
+	clst -= 2;
+	if (clst >= (fs->n_fatent - 2)) return 0;		/* Invalid cluster# */
+	return (DWORD)clst * fs->csize + fs->database;
+}
+
+
+static CLUST get_clust (
+	BYTE* dir		/* Pointer to directory entry */
+)
+{
+	FATFS *fs = FatFs;
+	CLUST clst = 0;
+
+
+	if (_FS_32ONLY || (PF_FS_FAT32 && fs->fs_type == FS_FAT32)) {
+		clst = ld_word(dir+DIR_FstClusHI);
+		clst <<= 16;
+	}
+	clst |= ld_word(dir+DIR_FstClusLO);
+
+	return clst;
+}
+
+
+/*-----------------------------------------------------------------------*/
+/* Directory handling - Rewind directory index                           */
+/*-----------------------------------------------------------------------*/
+
+static FRESULT dir_rewind (
+	DIR *dj			/* Pointer to directory object */
+)
+{
+	CLUST clst;
+	FATFS *fs = FatFs;
+
+
+	dj->index = 0;
+	clst = dj->sclust;
+	if (clst == 1 || clst >= fs->n_fatent) {	/* Check start cluster range */
+		return FR_DISK_ERR;
+	}
+	if (PF_FS_FAT32 && !clst && (_FS_32ONLY || fs->fs_type == FS_FAT32)) {	/* Replace cluster# 0 with root cluster# if in FAT32 */
+		clst = (CLUST)fs->dirbase;
+	}
+	dj->clust = clst;						/* Current cluster */
+	dj->sect = (_FS_32ONLY || clst) ? clust2sect(clst) : fs->dirbase;	/* Current sector */
+
+	return FR_OK;	/* Seek succeeded */
+}
+
+
+
+
+/*-----------------------------------------------------------------------*/
+/* Directory handling - Move directory index next                        */
+/*-----------------------------------------------------------------------*/
+
+static FRESULT dir_next (	/* FR_OK:Succeeded, FR_NO_FILE:End of table */
+	DIR *dj			/* Pointer to directory object */
+)
+{
+	CLUST clst;
+	WORD i;
+	FATFS *fs = FatFs;
+
+
+	i = dj->index + 1;
+	if (!i || !dj->sect) return FR_NO_FILE;	/* Report EOT when index has reached 65535 */
+
+	if (!(i % 16)) {		/* Sector changed? */
+		dj->sect++;			/* Next sector */
+
+		if (dj->clust == 0) {	/* Static table */
+			if (i >= fs->n_rootdir) return FR_NO_FILE;	/* Report EOT when end of table */
+		}
+		else {					/* Dynamic table */
+			if (((i / 16) & (fs->csize - 1)) == 0) {	/* Cluster changed? */
+				clst = get_fat(dj->clust);		/* Get next cluster */
+				if (clst <= 1) return FR_DISK_ERR;
+				if (clst >= fs->n_fatent) return FR_NO_FILE;	/* Report EOT when it reached end of dynamic table */
+				dj->clust = clst;				/* Initialize data for new cluster */
+				dj->sect = clust2sect(clst);
 			}
-			*scratchcache = sector;
-			// Thanks to Claudio Leonel for pointing out this missing line.
-			result |= ((uint32_t) scratch[0]) << 8;
 		}
-		else {
-			result = (uint32_t) scratch[offset] |
-			  ((uint32_t) scratch[offset+1]) << 8;
-		}
-		if (cluster & 1)
-			result = result >> 4;
-		else
-			result = result & 0xfff;
 	}
-	else if (volinfo->filesystem == FAT16) {
-		result = (uint32_t) scratch[offset] |
-		  ((uint32_t) scratch[offset+1]) << 8;
-	}
-	else if (volinfo->filesystem == FAT32) {
-		result = ((uint32_t) scratch[offset] |
-		  ((uint32_t) scratch[offset+1]) << 8 |
-		  ((uint32_t) scratch[offset+2]) << 16 |
-		  ((uint32_t) scratch[offset+3]) << 24) & 0x0fffffff;
-	}
-	else
-		result = 0x0ffffff7;	// FAT32 bad cluster	
-	return result;
+
+	dj->index = i;
+
+	return FR_OK;
 }
 
 
-/*
-	Set FAT entry for specified cluster number
-	You must provide a scratch buffer for one sector (SECTOR_SIZE) and a populated VOLINFO
-	Returns DFS_ERRMISC for any error, otherwise DFS_OK
-	scratchcache should point to a UINT32. This variable caches the physical sector number
-	last read into the scratch buffer for performance enhancement reasons.
 
-	NOTE: This code is HIGHLY WRITE-INEFFICIENT, particularly for flash media. Considerable
-	performance gains can be realized by caching the sector. However this is difficult to
-	achieve on FAT12 without requiring 2 sector buffers of scratch space, and it is a design
-	requirement of this code to operate on a single 512-byte scratch.
 
-	If you are operating DOSFS over flash, you are strongly advised to implement a writeback
-	cache in your physical I/O driver. This will speed up your code significantly and will
-	also conserve power and flash write life.
-*/
-uint32_t DFS_SetFAT(PVOLINFO volinfo, uint8_t *scratch, uint32_t *scratchcache, uint32_t cluster, uint32_t new_contents)
+/*-----------------------------------------------------------------------*/
+/* Directory handling - Find an object in the directory                  */
+/*-----------------------------------------------------------------------*/
+
+static FRESULT dir_find (
+	DIR *dj,		/* Pointer to the directory object linked to the file name */
+	BYTE *dir		/* 32-byte working buffer */
+)
 {
-	uint32_t offset, sector, result;
-	if (volinfo->filesystem == FAT12) {
-		offset = cluster + (cluster / 2);
-		new_contents &=0xfff;
-	}
-	else if (volinfo->filesystem == FAT16) {
-		offset = cluster * 2;
-		new_contents &=0xffff;
-	}
-	else if (volinfo->filesystem == FAT32) {
-		offset = cluster * 4;
-		new_contents &=0x0fffffff;	// FAT32 is really "FAT28"
-	}
-	else
-		return DFS_ERRMISC;	
-
-	// at this point, offset is the BYTE offset of the desired sector from the start
-	// of the FAT. Calculate the physical sector containing this FAT entry.
-	sector = ldiv(offset, SECTOR_SIZE).quot + volinfo->fat1;
-
-	// If this is not the same sector we last read, then read it into RAM
-	if (sector != *scratchcache) {
-		if(DFS_ReadSector(volinfo->unit, scratch, sector, 1)) {
-			// avoid anyone assuming that this cache value is still valid, which
-			// might cause disk corruption
-			*scratchcache = 0;
-			return DFS_ERRMISC;
-		}
-		*scratchcache = sector;
-	}
-
-	// At this point, we "merely" need to extract the relevant entry.
-	// This is easy for FAT16 and FAT32, but a royal PITA for FAT12 as a single entry
-	// may span a sector boundary. The normal way around this is always to read two
-	// FAT sectors, but that luxury is (by design intent) unavailable to DOSFS.
-	offset = ldiv(offset, SECTOR_SIZE).rem;
-
-	if (volinfo->filesystem == FAT12) {
-
-		// If this is an odd cluster, pre-shift the desired new contents 4 bits to
-		// make the calculations below simpler
-		if (cluster & 1)
-			new_contents = new_contents << 4;
-
-		// Special case for sector boundary
-		if (offset == SECTOR_SIZE - 1) {
-
-			// Odd cluster: High 12 bits being set
-			if (cluster & 1) {
-				scratch[offset] = (scratch[offset] & 0x0f) | new_contents & 0xf0;
-			}
-			// Even cluster: Low 12 bits being set
-			else {
-				scratch[offset] = new_contents & 0xff;
-			}
-			result = DFS_WriteSector(volinfo->unit, scratch, *scratchcache, 1);
-			// mirror the FAT into copy 2
-			if (DFS_OK == result)
-				result = DFS_WriteSector(volinfo->unit, scratch, (*scratchcache)+volinfo->secperfat, 1);
-
-			// If we wrote that sector OK, then read in the subsequent sector
-			// and poke the first byte with the remainder of this FAT entry.
-			if (DFS_OK == result) {
-				*scratchcache++;
-				result = DFS_ReadSector(volinfo->unit, scratch, *scratchcache, 1);
-				if (DFS_OK == result) {
-					// Odd cluster: High 12 bits being set
-					if (cluster & 1) {
-						scratch[0] = new_contents & 0xff00;
-					}
-					// Even cluster: Low 12 bits being set
-					else {
-						scratch[0] = (scratch[0] & 0xf0) | new_contents & 0x0f;
-					}
-					result = DFS_WriteSector(volinfo->unit, scratch, *scratchcache, 1);
-					// mirror the FAT into copy 2
-					if (DFS_OK == result)
-						result = DFS_WriteSector(volinfo->unit, scratch, (*scratchcache)+volinfo->secperfat, 1);
-				}
-				else {
-					// avoid anyone assuming that this cache value is still valid, which
-					// might cause disk corruption
-					*scratchcache = 0;
-				}
-			}
-		} // if (offset == SECTOR_SIZE - 1)
-
-		// Not a sector boundary. But we still have to worry about if it's an odd
-		// or even cluster number.
-		else {
-			// Odd cluster: High 12 bits being set
-			if (cluster & 1) {
-				scratch[offset] = (scratch[offset] & 0x0f) | new_contents & 0xf0;
-				scratch[offset+1] = new_contents & 0xff00;
-			}
-			// Even cluster: Low 12 bits being set
-			else {
-				scratch[offset] = new_contents & 0xff;
-				scratch[offset+1] = (scratch[offset+1] & 0xf0) | new_contents & 0x0f;
-			}
-			result = DFS_WriteSector(volinfo->unit, scratch, *scratchcache, 1);
-			// mirror the FAT into copy 2
-			if (DFS_OK == result)
-				result = DFS_WriteSector(volinfo->unit, scratch, (*scratchcache)+volinfo->secperfat, 1);
-		}
-	}
-	else if (volinfo->filesystem == FAT16) {
-		scratch[offset] = (new_contents & 0xff);
-		scratch[offset+1] = (new_contents & 0xff00) >> 8;
-		result = DFS_WriteSector(volinfo->unit, scratch, *scratchcache, 1);
-		// mirror the FAT into copy 2
-		if (DFS_OK == result)
-			result = DFS_WriteSector(volinfo->unit, scratch, (*scratchcache)+volinfo->secperfat, 1);
-	}
-	else if (volinfo->filesystem == FAT32) {
-		scratch[offset] = (new_contents & 0xff);
-		scratch[offset+1] = (new_contents & 0xff00) >> 8;
-		scratch[offset+2] = (new_contents & 0xff0000) >> 16;
-		scratch[offset+3] = (scratch[offset+3] & 0xf0) | ((new_contents & 0x0f000000) >> 24);
-		// Note well from the above: Per Microsoft's guidelines we preserve the upper
-		// 4 bits of the FAT32 cluster value. It's unclear what these bits will be used
-		// for; in every example I've encountered they are always zero.
-		result = DFS_WriteSector(volinfo->unit, scratch, *scratchcache, 1);
-		// mirror the FAT into copy 2
-		if (DFS_OK == result)
-			result = DFS_WriteSector(volinfo->unit, scratch, (*scratchcache)+volinfo->secperfat, 1);
-	}
-	else
-		result = DFS_ERRMISC;
-
-	return result;
-}
-
-/*
-	Convert a filename element from canonical (8.3) to directory entry (11) form
-	src must point to the first non-separator character.
-	dest must point to a 12-byte buffer.
-*/
-uint8_t *DFS_CanonicalToDir(uint8_t *dest, uint8_t *src)
-{
-	uint8_t *destptr = dest;
-
-	memset(dest, ' ', 11);
-	dest[11] = 0;
-
-	while (*src && (*src != DIR_SEPARATOR) && (destptr - dest < 11)) {
-		if (*src >= 'a' && *src <='z') {
-			*destptr++ = (*src - 'a') + 'A';
-			src++;
-		}
-		else if (*src == '.') {
-			src++;
-			destptr = dest + 8;
-		}
-		else {
-			*destptr++ = *src++;
-		}
-	}
-
-	return dest;
-}
-
-/*
-	Find the first unused FAT entry
-	You must provide a scratch buffer for one sector (SECTOR_SIZE) and a populated VOLINFO
-	Returns a FAT32 BAD_CLUSTER value for any error, otherwise the contents of the desired
-	FAT entry.
-	Returns FAT32 bad_sector (0x0ffffff7) if there is no free cluster available
-*/
-uint32_t DFS_GetFreeFAT(PVOLINFO volinfo, uint8_t *scratch)
-{
-	uint32_t i, result = 0xffffffff, scratchcache = 0;
-	
-	// Search starts at cluster 2, which is the first usable cluster
-	// NOTE: This search can't terminate at a bad cluster, because there might
-	// legitimately be bad clusters on the disk.
-	for (i=2; i < volinfo->numclusters; i++) {
-		result = DFS_GetFAT(volinfo, scratch, &scratchcache, i);
-		if (!result) {
-			return i;
-		}
-	}
-	return 0x0ffffff7;		// Can't find a free cluster
-}
+	FRESULT res;
+	BYTE c;
 
 
-/*
-	Open a directory for enumeration by DFS_GetNextDirEnt
-	You must supply a populated VOLINFO (see DFS_GetVolInfo)
-	The empty string or a string containing only the directory separator are
-	considered to be the root directory.
-	Returns 0 OK, nonzero for any error.
-*/
-uint32_t DFS_OpenDir(PVOLINFO volinfo, uint8_t *dirname, PDIRINFO dirinfo)
-{
-	// Default behavior is a regular search for existing entries
-	dirinfo->flags = 0;
+	res = dir_rewind(dj);			/* Rewind directory object */
+	if (res != FR_OK) return res;
 
-	if (!strlen((char *) dirname) || (strlen((char *) dirname) == 1 && dirname[0] == DIR_SEPARATOR)) {
-		if (volinfo->filesystem == FAT32) {
-			dirinfo->currentcluster = volinfo->rootdir;
-			dirinfo->currentsector = 0;
-			dirinfo->currententry = 0;
-
-			// read first sector of directory
-			return DFS_ReadSector(volinfo->unit, dirinfo->scratch, volinfo->dataarea + ((volinfo->rootdir - 2) * volinfo->secperclus), 1);
-		}
-		else {
-			dirinfo->currentcluster = 0;
-			dirinfo->currentsector = 0;
-			dirinfo->currententry = 0;
-
-			// read first sector of directory
-			return DFS_ReadSector(volinfo->unit, dirinfo->scratch, volinfo->rootdir, 1);
-		}
-	}
-
-	// This is not the root directory. We need to find the start of this subdirectory.
-	// We do this by devious means, using our own companion function DFS_GetNext.
-	else {
-		uint8_t tmpfn[12];
-		uint8_t *ptr = dirname;
-		uint32_t result;
-		DIRENT de;
-
-		if (volinfo->filesystem == FAT32) {
-			dirinfo->currentcluster = volinfo->rootdir;
-			dirinfo->currentsector = 0;
-			dirinfo->currententry = 0;
-
-			// read first sector of directory
-			if (DFS_ReadSector(volinfo->unit, dirinfo->scratch, volinfo->dataarea + ((volinfo->rootdir - 2) * volinfo->secperclus), 1))
-				return DFS_ERRMISC;
-		}
-		else {
-			dirinfo->currentcluster = 0;
-			dirinfo->currentsector = 0;
-			dirinfo->currententry = 0;
-
-			// read first sector of directory
-			if (DFS_ReadSector(volinfo->unit, dirinfo->scratch, volinfo->rootdir, 1))
-				return DFS_ERRMISC;
-		}
-
-		// skip leading path separators
-		while (*ptr == DIR_SEPARATOR && *ptr)
-			ptr++;
-
-		// Scan the path from left to right, finding the start cluster of each entry
-		// Observe that this code is inelegant, but obviates the need for recursion.
-		while (*ptr) {
-			DFS_CanonicalToDir(tmpfn, ptr);
-
-			de.name[0] = 0;
-
-			do {
-				result = DFS_GetNext(volinfo, dirinfo, &de);
-			} while (!result && memcmp(de.name, tmpfn, 11));
-
-			if (!memcmp(de.name, tmpfn, 11) && ((de.attr & ATTR_DIRECTORY) == ATTR_DIRECTORY)) {
-				if (volinfo->filesystem == FAT32) {
-					dirinfo->currentcluster = (uint32_t) de.startclus_l_l |
-					  ((uint32_t) de.startclus_l_h) << 8 |
-					  ((uint32_t) de.startclus_h_l) << 16 |
-					  ((uint32_t) de.startclus_h_h) << 24;
-				}
-				else {
-					dirinfo->currentcluster = (uint32_t) de.startclus_l_l |
-					  ((uint32_t) de.startclus_l_h) << 8;
-				}
-				dirinfo->currentsector = 0;
-				dirinfo->currententry = 0;
-
-				if (DFS_ReadSector(volinfo->unit, dirinfo->scratch, volinfo->dataarea + ((dirinfo->currentcluster - 2) * volinfo->secperclus), 1))
-					return DFS_ERRMISC;
-			}
-			else if (!memcmp(de.name, tmpfn, 11) && !(de.attr & ATTR_DIRECTORY))
-				return DFS_NOTFOUND;
-
-			// seek to next item in list
-			while (*ptr != DIR_SEPARATOR && *ptr)
-				ptr++;
-			if (*ptr == DIR_SEPARATOR)
-				ptr++;
-		}
-
-		if (!dirinfo->currentcluster)
-			return DFS_NOTFOUND;
-	}
-	return DFS_OK;
-}
-
-/*
-	Get next entry in opened directory structure. Copies fields into the dirent
-	structure, updates dirinfo. Note that it is the _caller's_ responsibility to
-	handle the '.' and '..' entries.
-	A deleted file will be returned as a NULL entry (first char of filename=0)
-	by this code. Filenames beginning with 0x05 will be translated to 0xE5
-	automatically. Long file name entries will be returned as NULL.
-	returns DFS_EOF if there are no more entries, DFS_OK if this entry is valid,
-	or DFS_ERRMISC for a media error
-*/
-uint32_t DFS_GetNext(PVOLINFO volinfo, PDIRINFO dirinfo, PDIRENT dirent)
-{
-	uint32_t tempint;	// required by DFS_GetFAT
-
-	// Do we need to read the next sector of the directory?
-	if (dirinfo->currententry >= SECTOR_SIZE / sizeof(DIRENT)) {
-		dirinfo->currententry = 0;
-		dirinfo->currentsector++;
-
-		// Root directory; special case handling 
-		// Note that currentcluster will only ever be zero if both:
-		// (a) this is the root directory, and
-		// (b) we are on a FAT12/16 volume, where the root dir can't be expanded
-		if (dirinfo->currentcluster == 0) {
-			// Trying to read past end of root directory?
-			if (dirinfo->currentsector * (SECTOR_SIZE / sizeof(DIRENT)) >= volinfo->rootentries)
-				return DFS_EOF;
-
-			// Otherwise try to read the next sector
-			if (DFS_ReadSector(volinfo->unit, dirinfo->scratch, volinfo->rootdir + dirinfo->currentsector, 1))
-				return DFS_ERRMISC;
-		}
-
-		// Normal handling
-		else {
-			if (dirinfo->currentsector >= volinfo->secperclus) {
-				dirinfo->currentsector = 0;
-				if ((dirinfo->currentcluster >= 0xff7 &&  volinfo->filesystem == FAT12) ||
-				  (dirinfo->currentcluster >= 0xfff7 &&  volinfo->filesystem == FAT16) ||
-				  (dirinfo->currentcluster >= 0x0ffffff7 &&  volinfo->filesystem == FAT32)) {
-				  
-				  	// We are at the end of the directory chain. If this is a normal
-				  	// find operation, we should indicate that there is nothing more
-				  	// to see.
-				  	if (!(dirinfo->flags & DFS_DI_BLANKENT))
-						return DFS_EOF;
-					
-					// On the other hand, if this is a "find free entry" search,
-					// we need to tell the caller to allocate a new cluster
-					else
-						return DFS_ALLOCNEW;
-				}
-				dirinfo->currentcluster = DFS_GetFAT(volinfo, dirinfo->scratch, &tempint, dirinfo->currentcluster);
-			}
-			if (DFS_ReadSector(volinfo->unit, dirinfo->scratch, volinfo->dataarea + ((dirinfo->currentcluster - 2) * volinfo->secperclus) + dirinfo->currentsector, 1))
-				return DFS_ERRMISC;
-		}
-	}
-
-	memcpy(dirent, &(((PDIRENT) dirinfo->scratch)[dirinfo->currententry]), sizeof(DIRENT));
-
-	if (dirent->name[0] == 0) {		// no more files in this directory
-		// If this is a "find blank" then we can reuse this name.
-		if (dirinfo->flags & DFS_DI_BLANKENT)
-			return DFS_OK;
-		else
-			return DFS_EOF;
-	}
-
-	if (dirent->name[0] == 0xe5)	// handle deleted file entries
-		dirent->name[0] = 0;
-	else if ((dirent->attr & ATTR_LONG_NAME) == ATTR_LONG_NAME)
-		dirent->name[0] = 0;
-	else if (dirent->name[0] == 0x05)	// handle kanji filenames beginning with 0xE5
-		dirent->name[0] = 0xe5;
-
-	dirinfo->currententry++;
-
-	return DFS_OK;
-}
-
-/*
-	INTERNAL
-	Find a free directory entry in the directory specified by path
-	This function MAY cause a disk write if it is necessary to extend the directory
-	size.
-	Note - di.scratch must be preinitialized to point to a sector scratch buffer
-	de is a scratch structure
-	Returns DFS_ERRMISC if a new entry could not be located or created
-	de is updated with the same return information you would expect from DFS_GetNext
-*/
-uint32_t DFS_GetFreeDirEnt(PVOLINFO volinfo, uint8_t *path, PDIRINFO di, PDIRENT de)
-{
-	uint32_t tempclus,i;
-
-	if (DFS_OpenDir(volinfo, path, di))
-		return DFS_NOTFOUND;
-
-	// Set "search for empty" flag so DFS_GetNext knows what we're doing
-	di->flags |= DFS_DI_BLANKENT;
-
-	// We seek through the directory looking for an empty entry
-	// Note we are reusing tempclus as a temporary result holder.
-	tempclus = 0;	
 	do {
-		tempclus = DFS_GetNext(volinfo, di, de);
+		res = disk_readp(dir, dj->sect, (dj->index % 16) * 32, 32)	/* Read an entry */
+			? FR_DISK_ERR : FR_OK;
+		if (res != FR_OK) break;
+		c = dir[DIR_Name];	/* First character */
+		if (c == 0) { res = FR_NO_FILE; break; }	/* Reached to end of table */
+		if (!(dir[DIR_Attr] & AM_VOL) && !mem_cmp(dir, dj->fn, 11)) break;	/* Is it a valid entry? */
+		res = dir_next(dj);					/* Next entry */
+	} while (res == FR_OK);
 
-		// Empty entry found
-		if (tempclus == DFS_OK && (!de->name[0])) {
-			return DFS_OK;
-		}
-
-		// End of root directory reached
-		else if (tempclus == DFS_EOF)
-			return DFS_ERRMISC;
-			
-		else if (tempclus == DFS_ALLOCNEW) {
-			tempclus = DFS_GetFreeFAT(volinfo, di->scratch);
-			if (tempclus == 0x0ffffff7)
-				return DFS_ERRMISC;
-
-			// write out zeroed sectors to the new cluster
-			memset(di->scratch, 0, SECTOR_SIZE);
-			for (i=0;i<volinfo->secperclus;i++) {
-				if (DFS_WriteSector(volinfo->unit, di->scratch, volinfo->dataarea + ((tempclus - 2) * volinfo->secperclus) + i, 1))
-					return DFS_ERRMISC;
-			}
-			// Point old end cluster to newly allocated cluster
-			i = 0;
-			DFS_SetFAT(volinfo, di->scratch, &i, di->currentcluster, tempclus);
-
-			// Update DIRINFO so caller knows where to place the new file			
-			di->currentcluster = tempclus;
-			di->currentsector = 0;
-			di->currententry = 1;	// since the code coming after this expects to subtract 1
-			
-			// Mark newly allocated cluster as end of chain			
-			switch(volinfo->filesystem) {
-				case FAT12:		tempclus = 0xff8;	break;
-				case FAT16:		tempclus = 0xfff8;	break;
-				case FAT32:		tempclus = 0x0ffffff8;	break;
-				default:		return DFS_ERRMISC;
-			}
-			DFS_SetFAT(volinfo, di->scratch, &i, di->currentcluster, tempclus);
-		}
-	} while (!tempclus);
-
-	// We shouldn't get here
-	return DFS_ERRMISC;
+	return res;
 }
 
-/*
-	Open a file for reading or writing. You supply populated VOLINFO, a path to the file,
-	mode (DFS_READ or DFS_WRITE) and an empty fileinfo structure. You also need to
-	provide a pointer to a sector-sized scratch buffer.
-	Returns various DFS_* error states. If the result is DFS_OK, fileinfo can be used
-	to access the file from this point on.
-*/
-uint32_t DFS_OpenFile(PVOLINFO volinfo, uint8_t *path, uint8_t mode, uint8_t *scratch, PFILEINFO fileinfo)
+
+
+
+/*-----------------------------------------------------------------------*/
+/* Read an object from the directory                                     */
+/*-----------------------------------------------------------------------*/
+#if PF_USE_DIR
+static FRESULT dir_read (
+	DIR *dj,		/* Pointer to the directory object to store read object name */
+	BYTE *dir		/* 32-byte working buffer */
+)
 {
-	uint8_t tmppath[MAX_PATH];
-	uint8_t filename[12];
-	uint8_t *p;
-	DIRINFO di;
-	DIRENT de;
+	FRESULT res;
+	BYTE a, c;
 
-	// larwe 2006-09-16 +1 zero out file structure
-	memset(fileinfo, 0, sizeof(FILEINFO));
 
-	// save access mode
-	fileinfo->mode = mode;
-
-	// Get a local copy of the path. If it's longer than MAX_PATH, abort.
-	strncpy((char *) tmppath, (char *) path, MAX_PATH);
-	tmppath[MAX_PATH - 1] = 0;
-	if (strcmp((char *) path,(char *) tmppath)) {
-		return DFS_PATHLEN;
+	res = FR_NO_FILE;
+	while (dj->sect) {
+		res = disk_readp(dir, dj->sect, (dj->index % 16) * 32, 32)	/* Read an entry */
+			? FR_DISK_ERR : FR_OK;
+		if (res != FR_OK) break;
+		c = dir[DIR_Name];
+		if (c == 0) { res = FR_NO_FILE; break; }	/* Reached to end of table */
+		a = dir[DIR_Attr] & AM_MASK;
+		if (c != 0xE5 && c != '.' && !(a & AM_VOL))	break;	/* Is it a valid entry? */
+		res = dir_next(dj);			/* Next entry */
+		if (res != FR_OK) break;
 	}
 
-	// strip leading path separators
-	while (tmppath[0] == DIR_SEPARATOR)
-		strcpy((char *) tmppath, (char *) tmppath + 1);
+	if (res != FR_OK) dj->sect = 0;
 
-	// Parse filename off the end of the supplied path
-	p = tmppath;
-	while (*(p++));
-
-	p--;
-	while (p > tmppath && *p != DIR_SEPARATOR) // larwe 9/16/06 ">=" to ">" bugfix
-		p--;
-	if (*p == DIR_SEPARATOR)
-		p++;
-
-	DFS_CanonicalToDir(filename, p);
-
-	if (p > tmppath)
-		p--;
-	if (*p == DIR_SEPARATOR || p == tmppath) // larwe 9/16/06 +"|| p == tmppath" bugfix
-		*p = 0;
-
-	// At this point, if our path was MYDIR/MYDIR2/FILE.EXT, filename = "FILE    EXT" and
-	// tmppath = "MYDIR/MYDIR2".
-	di.scratch = scratch;
-	if (DFS_OpenDir(volinfo, tmppath, &di))
-		return DFS_NOTFOUND;
-
-	while (!DFS_GetNext(volinfo, &di, &de)) {
-		if (!memcmp(de.name, filename, 11)) {
-			// You can't use this function call to open a directory.
-			if (de.attr & ATTR_DIRECTORY)
-				return DFS_NOTFOUND;
-
-			fileinfo->volinfo = volinfo;
-			fileinfo->pointer = 0;
-			// The reason we store this extra info about the file is so that we can
-			// speedily update the file size, modification date, etc. on a file that is
-			// opened for writing.
-			if (di.currentcluster == 0)
-				fileinfo->dirsector = volinfo->rootdir + di.currentsector;
-			else
-				fileinfo->dirsector = volinfo->dataarea + ((di.currentcluster - 2) * volinfo->secperclus) + di.currentsector;
-			fileinfo->diroffset = di.currententry - 1;
-			if (volinfo->filesystem == FAT32) {
-				fileinfo->cluster = (uint32_t) de.startclus_l_l |
-				  ((uint32_t) de.startclus_l_h) << 8 |
-				  ((uint32_t) de.startclus_h_l) << 16 |
-				  ((uint32_t) de.startclus_h_h) << 24;
-			}
-			else {
-				fileinfo->cluster = (uint32_t) de.startclus_l_l |
-				  ((uint32_t) de.startclus_l_h) << 8;
-			}
-			fileinfo->firstcluster = fileinfo->cluster;
-			fileinfo->filelen = (uint32_t) de.filesize_0 |
-			  ((uint32_t) de.filesize_1) << 8 |
-			  ((uint32_t) de.filesize_2) << 16 |
-			  ((uint32_t) de.filesize_3) << 24;
-
-			return DFS_OK;
-		}
-	}
-
-	// At this point, we KNOW the file does not exist. If the file was opened
-	// with write access, we can create it.
-	if (mode & DFS_WRITE) {
-		uint32_t cluster, temp;
-
-		// Locate or create a directory entry for this file
-		if (DFS_OK != DFS_GetFreeDirEnt(volinfo, tmppath, &di, &de))
-			return DFS_ERRMISC;
-
-		// put sane values in the directory entry
-		memset(&de, 0, sizeof(de));
-		memcpy(de.name, filename, 11);
-		de.crttime_l = 0x20;	// 01:01:00am, Jan 1, 2006.
-		de.crttime_h = 0x08;
-		de.crtdate_l = 0x11;
-		de.crtdate_h = 0x34;
-		de.lstaccdate_l = 0x11;
-		de.lstaccdate_h = 0x34;
-		de.wrttime_l = 0x20;
-		de.wrttime_h = 0x08;
-		de.wrtdate_l = 0x11;
-		de.wrtdate_h = 0x34;
-
-		// allocate a starting cluster for the directory entry
-		cluster = DFS_GetFreeFAT(volinfo, scratch);
-
-		de.startclus_l_l = cluster & 0xff;
-		de.startclus_l_h = (cluster & 0xff00) >> 8;
-		de.startclus_h_l = (cluster & 0xff0000) >> 16;
-		de.startclus_h_h = (cluster & 0xff000000) >> 24;
-
-		// update FILEINFO for our caller's sake
-		fileinfo->volinfo = volinfo;
-		fileinfo->pointer = 0;
-		// The reason we store this extra info about the file is so that we can
-		// speedily update the file size, modification date, etc. on a file that is
-		// opened for writing.
-		if (di.currentcluster == 0)
-			fileinfo->dirsector = volinfo->rootdir + di.currentsector;
-		else
-			fileinfo->dirsector = volinfo->dataarea + ((di.currentcluster - 2) * volinfo->secperclus) + di.currentsector;
-		fileinfo->diroffset = di.currententry - 1;
-		fileinfo->cluster = cluster;
-		fileinfo->firstcluster = cluster;
-		fileinfo->filelen = 0;
-		
-		// write the directory entry
-		// note that we no longer have the sector containing the directory entry,
-		// tragically, so we have to re-read it
-		if (DFS_ReadSector(volinfo->unit, scratch, fileinfo->dirsector, 1))
-			return DFS_ERRMISC;
-		memcpy(&(((PDIRENT) scratch)[di.currententry-1]), &de, sizeof(DIRENT));
-		if (DFS_WriteSector(volinfo->unit, scratch, fileinfo->dirsector, 1))
-			return DFS_ERRMISC;
-
-		// Mark newly allocated cluster as end of chain			
-		switch(volinfo->filesystem) {
-			case FAT12:		cluster = 0xff8;	break;
-			case FAT16:		cluster = 0xfff8;	break;
-			case FAT32:		cluster = 0x0ffffff8;	break;
-			default:		return DFS_ERRMISC;
-		}
-		temp = 0;
-		DFS_SetFAT(volinfo, scratch, &temp, fileinfo->cluster, cluster);
-
-		return DFS_OK;
-	}
-
-	return DFS_NOTFOUND;
+	return res;
 }
+#endif
 
-/*
-	Read an open file
-	You must supply a prepopulated FILEINFO as provided by DFS_OpenFile, and a
-	pointer to a SECTOR_SIZE scratch buffer.
-	Note that returning DFS_EOF is not an error condition. This function updates the
-	successcount field with the number of bytes actually read.
-*/
-uint32_t DFS_ReadFile(PFILEINFO fileinfo, uint8_t *scratch, uint8_t *buffer, uint32_t *successcount, uint32_t len)
+
+
+/*-----------------------------------------------------------------------*/
+/* Pick a segment and create the object name in directory form           */
+/*-----------------------------------------------------------------------*/
+
+
+static FRESULT create_name (
+	DIR *dj,			/* Pointer to the directory object */
+	const char **path	/* Pointer to pointer to the segment in the path string */
+)
 {
-	uint32_t remain;
-	uint32_t result = DFS_OK;
-	uint32_t sector;
-	uint32_t bytesread;
+	BYTE c, d, ni, si, i, *sfn;
+	const char *p;
+#if PF_USE_LCC && defined(_EXCVT)
+	static const BYTE cvt[] = _EXCVT;
+#endif
 
-	// Don't try to read past EOF
-	if (len > fileinfo->filelen - fileinfo->pointer)
-		len = fileinfo->filelen - fileinfo->pointer;
-
-	remain = len;
-	*successcount = 0;
-
-	while (remain && result == DFS_OK) {
-		// This is a bit complicated. The sector we want to read is addressed at a cluster
-		// granularity by the fileinfo->cluster member. The file pointer tells us how many
-		// extra sectors to add to that number.
-		sector = fileinfo->volinfo->dataarea +
-		  ((fileinfo->cluster - 2) * fileinfo->volinfo->secperclus) +
-		  div(div(fileinfo->pointer,fileinfo->volinfo->secperclus * SECTOR_SIZE).rem, SECTOR_SIZE).quot;
-
-		// Case 1 - File pointer is not on a sector boundary
-		if (div(fileinfo->pointer, SECTOR_SIZE).rem) {
-			uint16_t tempreadsize;
-
-			// We always have to go through scratch in this case
-			result = DFS_ReadSector(fileinfo->volinfo->unit, scratch, sector, 1);
-
-			// This is the number of bytes that we actually care about in the sector
-			// just read.
-			tempreadsize = SECTOR_SIZE - (div(fileinfo->pointer, SECTOR_SIZE).rem);
-					
-			// Case 1A - We want the entire remainder of the sector. After this
-			// point, all passes through the read loop will be aligned on a sector
-			// boundary, which allows us to go through the optimal path 2A below.
-		   	if (remain >= tempreadsize) {
-				memcpy(buffer, scratch + (SECTOR_SIZE - tempreadsize), tempreadsize);
-				bytesread = tempreadsize;
-				buffer += tempreadsize;
-				fileinfo->pointer += tempreadsize;
-				remain -= tempreadsize;
-			}
-			// Case 1B - This read concludes the file read operation
-			else {
-				memcpy(buffer, scratch + (SECTOR_SIZE - tempreadsize), remain);
-
-				buffer += remain;
-				fileinfo->pointer += remain;
-				bytesread = remain;
-				remain = 0;
-			}
+	/* Create file name in directory form */
+	sfn = dj->fn;
+	mem_set(sfn, ' ', 11);
+	si = i = 0; ni = 8;
+	p = *path;
+	for (;;) {
+		c = p[si++];
+		if (c <= ' ' || c == '/') break;	/* Break on end of segment */
+		if (c == '.' || i >= ni) {
+			if (ni != 8 || c != '.') break;
+			i = 8; ni = 11;
+			continue;
 		}
-		// Case 2 - File pointer is on sector boundary
-		else {
-			// Case 2A - We have at least one more full sector to read and don't have
-			// to go through the scratch buffer. You could insert optimizations here to
-			// read multiple sectors at a time, if you were thus inclined (note that
-			// the maximum multi-read you could perform is a single cluster, so it would
-			// be advantageous to have code similar to case 1A above that would round the
-			// pointer to a cluster boundary the first pass through, so all subsequent
-			// [large] read requests would be able to go a cluster at a time).
-			if (remain >= SECTOR_SIZE) {
-				result = DFS_ReadSector(fileinfo->volinfo->unit, buffer, sector, 1);
-				remain -= SECTOR_SIZE;
-				buffer += SECTOR_SIZE;
-				fileinfo->pointer += SECTOR_SIZE;
-				bytesread = SECTOR_SIZE;
-			}
-			// Case 2B - We are only reading a partial sector
-			else {
-				result = DFS_ReadSector(fileinfo->volinfo->unit, scratch, sector, 1);
-				memcpy(buffer, scratch, remain);
-				buffer += remain;
-				fileinfo->pointer += remain;
-				bytesread = remain;
-				remain = 0;
-			}
-		}
-
-		*successcount += bytesread;
-
-		// check to see if we stepped over a cluster boundary
-		if (div(fileinfo->pointer - bytesread, fileinfo->volinfo->secperclus * SECTOR_SIZE).quot !=
-		  div(fileinfo->pointer, fileinfo->volinfo->secperclus * SECTOR_SIZE).quot) {
-			// An act of minor evil - we use bytesread as a scratch integer, knowing that
-			// its value is not used after updating *successcount above
-			bytesread = 0;
-			if (((fileinfo->volinfo->filesystem == FAT12) && (fileinfo->cluster >= 0xff8)) ||
-			  ((fileinfo->volinfo->filesystem == FAT16) && (fileinfo->cluster >= 0xfff8)) ||
-			  ((fileinfo->volinfo->filesystem == FAT32) && (fileinfo->cluster >= 0x0ffffff8)))
-				result = DFS_EOF;
-			else
-				fileinfo->cluster = DFS_GetFAT(fileinfo->volinfo, scratch, &bytesread, fileinfo->cluster);
+#if PF_USE_LCC && defined(_EXCVT)
+		if (c >= 0x80) c = cvt[c - 0x80];	/* To upper extended char (SBCS) */
+#endif
+		if (IsDBCS1(c) && i < ni - 1) {	/* DBC 1st byte? */
+			d = p[si++];				/* Get 2nd byte */
+			sfn[i++] = c;
+			sfn[i++] = d;
+		} else {						/* Single byte code */
+			if (PF_USE_LCC && IsLower(c)) c -= 0x20;	/* toupper */
+			sfn[i++] = c;
 		}
 	}
-	
-	return result;
+	*path = &p[si];						/* Rerurn pointer to the next segment */
+
+	sfn[11] = (c <= ' ') ? 1 : 0;		/* Set last segment flag if end of path */
+
+	return FR_OK;
 }
 
-/*
-	Seek file pointer to a given position
-	This function does not return status - refer to the fileinfo->pointer value
-	to see where the pointer wound up.
-	Requires a SECTOR_SIZE scratch buffer
-*/
-void DFS_Seek(PFILEINFO fileinfo, uint32_t offset, uint8_t *scratch)
+
+
+
+/*-----------------------------------------------------------------------*/
+/* Get file information from directory entry                             */
+/*-----------------------------------------------------------------------*/
+#if PF_USE_DIR
+static void get_fileinfo (		/* No return code */
+	DIR *dj,			/* Pointer to the directory object */
+	BYTE *dir,			/* 32-byte working buffer */
+	FILINFO *fno	 	/* Pointer to store the file information */
+)
 {
-	uint32_t tempint;
+	BYTE i, c;
+	char *p;
 
-	// larwe 9/16/06 bugfix split case 0a/0b and changed fallthrough handling
-	// Case 0a - Return immediately for degenerate case
-	if (offset == fileinfo->pointer) {
-		return;
-	}
-	
-	// Case 0b - Don't allow the user to seek past the end of the file
-	if (offset > fileinfo->filelen) {
-		offset = fileinfo->filelen;
-		// NOTE NO RETURN HERE!
-	}
 
-	// Case 1 - Simple rewind to start
-	// Note _intentional_ fallthrough from Case 0b above
-	if (offset == 0) {
-		fileinfo->cluster = fileinfo->firstcluster;
-		fileinfo->pointer = 0;
-		return;		// larwe 9/16/06 +1 bugfix
-	}
-	// Case 2 - Seeking backwards. Need to reset and seek forwards
-	else if (offset < fileinfo->pointer) {
-		fileinfo->cluster = fileinfo->firstcluster;
-		fileinfo->pointer = 0;
-		// NOTE NO RETURN HERE!
-	}
-
-	// Case 3 - Seeking forwards
-	// Note _intentional_ fallthrough from Case 2 above
-
-	// Case 3a - Seek size does not cross cluster boundary - 
-	// very simple case
-	// larwe 9/16/06 changed .rem to .quot in both div calls, bugfix
-	if (div(fileinfo->pointer, fileinfo->volinfo->secperclus * SECTOR_SIZE).quot ==
-	  div(fileinfo->pointer + offset, fileinfo->volinfo->secperclus * SECTOR_SIZE).quot) {
-		fileinfo->pointer = offset;
-	}
-	// Case 3b - Seeking across cluster boundary(ies)
-	else {
-		// round file pointer down to cluster boundary
-		fileinfo->pointer = div(fileinfo->pointer, fileinfo->volinfo->secperclus * SECTOR_SIZE).quot *
-		  fileinfo->volinfo->secperclus * SECTOR_SIZE;
-
-		// seek by clusters
-		// larwe 9/30/06 bugfix changed .rem to .quot in both div calls
-		while (div(fileinfo->pointer, fileinfo->volinfo->secperclus * SECTOR_SIZE).quot !=
-		  div(fileinfo->pointer + offset, fileinfo->volinfo->secperclus * SECTOR_SIZE).quot) {
-
-			fileinfo->cluster = DFS_GetFAT(fileinfo->volinfo, scratch, &tempint, fileinfo->cluster);
-			// Abort if there was an error
-			if (fileinfo->cluster == 0x0ffffff7) {
-				fileinfo->pointer = 0;
-				fileinfo->cluster = fileinfo->firstcluster;
-				return;
-			}
-			fileinfo->pointer += SECTOR_SIZE * fileinfo->volinfo->secperclus;
+	p = fno->fname;
+	if (dj->sect) {
+		for (i = 0; i < 8; i++) {	/* Copy file name body */
+			c = dir[i];
+			if (c == ' ') break;
+			if (c == 0x05) c = 0xE5;
+			*p++ = c;
 		}
-
-		// since we know the cluster is right, we have no more work to do
-		fileinfo->pointer = offset;
+		if (dir[8] != ' ') {		/* Copy file name extension */
+			*p++ = '.';
+			for (i = 8; i < 11; i++) {
+				c = dir[i];
+				if (c == ' ') break;
+				*p++ = c;
+			}
+		}
+		fno->fattrib = dir[DIR_Attr];				/* Attribute */
+		fno->fsize = ld_dword(dir+DIR_FileSize);	/* Size */
+		fno->fdate = ld_word(dir+DIR_WrtDate);		/* Date */
+		fno->ftime = ld_word(dir+DIR_WrtTime);		/* Time */
 	}
+	*p = 0;
 }
+#endif /* PF_USE_DIR */
 
-/*
-	Delete a file
-	scratch must point to a sector-sized buffer
-*/
-uint32_t DFS_UnlinkFile(PVOLINFO volinfo, uint8_t *path, uint8_t *scratch)
+
+
+/*-----------------------------------------------------------------------*/
+/* Follow a file path                                                    */
+/*-----------------------------------------------------------------------*/
+
+static FRESULT follow_path (	/* FR_OK(0): successful, !=0: error code */
+	DIR *dj,			/* Directory object to return last directory and found object */
+	BYTE *dir,			/* 32-byte working buffer */
+	const char *path	/* Full-path string to find a file or directory */
+)
 {
-	PDIRENT de = (PDIRENT) scratch;
-	FILEINFO fi;
-	uint32_t cache = 0;
-	uint32_t tempclus;
+	FRESULT res;
 
-	// DFS_OpenFile gives us all the information we need to delete it
-	if (DFS_OK != DFS_OpenFile(volinfo, path, DFS_READ, scratch, &fi))
-		return DFS_NOTFOUND;
 
-	// First, read the directory sector and delete that entry
-	if (DFS_ReadSector(volinfo->unit, scratch, fi.dirsector, 1))
-		return DFS_ERRMISC;
-	((PDIRENT) scratch)[fi.diroffset].name[0] = 0xe5;
-	if (DFS_WriteSector(volinfo->unit, scratch, fi.dirsector, 1))
-		return DFS_ERRMISC;
+	while (*path == ' ') path++;		/* Strip leading spaces */
+	if (*path == '/') path++;			/* Strip heading separator if exist */
+	dj->sclust = 0;						/* Set start directory (always root dir) */
 
-	// Now follow the cluster chain to free the file space
-	while (!((volinfo->filesystem == FAT12 && fi.firstcluster >= 0x0ff7) ||
-	  (volinfo->filesystem == FAT16 && fi.firstcluster >= 0xfff7) ||
-	  (volinfo->filesystem == FAT32 && fi.firstcluster >= 0x0ffffff7))) {
-		tempclus = fi.firstcluster;
+	if ((BYTE)*path < ' ') {			/* Null path means the root directory */
+		res = dir_rewind(dj);
+		dir[0] = 0;
 
-		fi.firstcluster = DFS_GetFAT(volinfo, scratch, &cache, fi.firstcluster);
-		DFS_SetFAT(volinfo, scratch, &cache, tempclus, 0);
-
+	} else {							/* Follow path */
+		for (;;) {
+			res = create_name(dj, &path);	/* Get a segment */
+			if (res != FR_OK) break;
+			res = dir_find(dj, dir);		/* Find it */
+			if (res != FR_OK) break;		/* Could not find the object */
+			if (dj->fn[11]) break;			/* Last segment match. Function completed. */
+			if (!(dir[DIR_Attr] & AM_DIR)) { /* Cannot follow path because it is a file */
+				res = FR_NO_FILE; break;
+			}
+			dj->sclust = get_clust(dir);	/* Follow next */
+		}
 	}
-	return DFS_OK;
+
+	return res;
 }
 
 
-/*
-	Write an open file
-	You must supply a prepopulated FILEINFO as provided by DFS_OpenFile, and a
-	pointer to a SECTOR_SIZE scratch buffer.
-	This function updates the successcount field with the number of bytes actually written.
-*/
-uint32_t DFS_WriteFile(PFILEINFO fileinfo, uint8_t *scratch, uint8_t *buffer, uint32_t *successcount, uint32_t len)
+
+
+/*-----------------------------------------------------------------------*/
+/* Check a sector if it is an FAT boot record                            */
+/*-----------------------------------------------------------------------*/
+
+static BYTE check_fs (	/* 0:The FAT boot record, 1:Valid boot record but not an FAT, 2:Not a boot record, 3:Error */
+	BYTE *buf,	/* Working buffer */
+	DWORD sect	/* Sector# (lba) to check if it is an FAT boot record or not */
+)
 {
-	uint32_t remain;
-	uint32_t result = DFS_OK;
-	uint32_t sector;
-	uint32_t byteswritten;
+	if (disk_readp(buf, sect, 510, 2)) {	/* Read the boot record */
+		return 3;
+	}
+	if (ld_word(buf) != 0xAA55) {			/* Check record signature */
+		return 2;
+	}
 
-	// Don't allow writes to a file that's open as readonly
-	if (!(fileinfo->mode & DFS_WRITE))
-		return DFS_ERRMISC;
+	if (!_FS_32ONLY && !disk_readp(buf, sect, BS_FilSysType, 2) && ld_word(buf) == 0x4146) {	/* Check FAT12/16 */
+		return 0;
+	}
+	if (PF_FS_FAT32 && !disk_readp(buf, sect, BS_FilSysType32, 2) && ld_word(buf) == 0x4146) {	/* Check FAT32 */
+		return 0;
+	}
+	return 1;
+}
 
-	remain = len;
-	*successcount = 0;
 
-	while (remain && result == DFS_OK) {
-		// This is a bit complicated. The sector we want to read is addressed at a cluster
-		// granularity by the fileinfo->cluster member. The file pointer tells us how many
-		// extra sectors to add to that number.
-		sector = fileinfo->volinfo->dataarea +
-		  ((fileinfo->cluster - 2) * fileinfo->volinfo->secperclus) +
-		  div(div(fileinfo->pointer,fileinfo->volinfo->secperclus * SECTOR_SIZE).rem, SECTOR_SIZE).quot;
 
-		// Case 1 - File pointer is not on a sector boundary
-		if (div(fileinfo->pointer, SECTOR_SIZE).rem) {
-			uint16_t tempsize;
 
-			// We always have to go through scratch in this case
-			result = DFS_ReadSector(fileinfo->volinfo->unit, scratch, sector, 1);
+/*--------------------------------------------------------------------------
 
-			// This is the number of bytes that we don't want to molest in the
-			// scratch sector just read.
-			tempsize = div(fileinfo->pointer, SECTOR_SIZE).rem;
-					
-			// Case 1A - We are writing the entire remainder of the sector. After
-			// this point, all passes through the read loop will be aligned on a
-			// sector boundary, which allows us to go through the optimal path
-			// 2A below.
-		   	if (remain >= SECTOR_SIZE - tempsize) {
-				memcpy(scratch + tempsize, buffer, SECTOR_SIZE - tempsize);
-				if (!result)
-					result = DFS_WriteSector(fileinfo->volinfo->unit, scratch, sector, 1);
+   Public Functions
 
-				byteswritten = SECTOR_SIZE - tempsize;
-				buffer += SECTOR_SIZE - tempsize;
-				fileinfo->pointer += SECTOR_SIZE - tempsize;
-				if (fileinfo->filelen < fileinfo->pointer) {
-					fileinfo->filelen = fileinfo->pointer;
-				}
-				remain -= SECTOR_SIZE - tempsize;
+--------------------------------------------------------------------------*/
+
+
+
+/*-----------------------------------------------------------------------*/
+/* Mount/Unmount a Locical Drive                                         */
+/*-----------------------------------------------------------------------*/
+
+FRESULT pf_mount (
+	FATFS *fs		/* Pointer to new file system object */
+)
+{
+	BYTE fmt, buf[36];
+	DWORD bsect, fsize, tsect, mclst;
+
+
+	FatFs = 0;
+
+	if (disk_initialize() & STA_NOINIT) {	/* Check if the drive is ready or not */
+		return FR_NOT_READY;
+	}
+
+	/* Search FAT partition on the drive */
+	bsect = 0;
+	fmt = check_fs(buf, bsect);			/* Check sector 0 as an SFD format */
+	if (fmt == 1) {						/* Not an FAT boot record, it may be FDISK format */
+		/* Check a partition listed in top of the partition table */
+		if (disk_readp(buf, bsect, MBR_Table, 16)) {	/* 1st partition entry */
+			fmt = 3;
+		} else {
+			if (buf[4]) {					/* Is the partition existing? */
+				bsect = ld_dword(&buf[8]);	/* Partition offset in LBA */
+				fmt = check_fs(buf, bsect);	/* Check the partition */
 			}
-			// Case 1B - This concludes the file write operation
-			else {
-				memcpy(scratch + tempsize, buffer, remain);
-				if (!result)
-					result = DFS_WriteSector(fileinfo->volinfo->unit, scratch, sector, 1);
-
-				buffer += remain;
-				fileinfo->pointer += remain;
-				if (fileinfo->filelen < fileinfo->pointer) {
-					fileinfo->filelen = fileinfo->pointer;
-				}
-				byteswritten = remain;
-				remain = 0;
-			}
-		} // case 1
-		// Case 2 - File pointer is on sector boundary
-		else {
-			// Case 2A - We have at least one more full sector to write and don't have
-			// to go through the scratch buffer. You could insert optimizations here to
-			// write multiple sectors at a time, if you were thus inclined. Refer to
-			// similar notes in DFS_ReadFile.
-			if (remain >= SECTOR_SIZE) {
-				result = DFS_WriteSector(fileinfo->volinfo->unit, buffer, sector, 1);
-				remain -= SECTOR_SIZE;
-				buffer += SECTOR_SIZE;
-				fileinfo->pointer += SECTOR_SIZE;
-				if (fileinfo->filelen < fileinfo->pointer) {
-					fileinfo->filelen = fileinfo->pointer;
-				}
-				byteswritten = SECTOR_SIZE;
-			}
-			// Case 2B - We are only writing a partial sector and potentially need to
-			// go through the scratch buffer.
-			else {
-				// If the current file pointer is not yet at or beyond the file
-				// length, we are writing somewhere in the middle of the file and
-				// need to load the original sector to do a read-modify-write.
-				if (fileinfo->pointer < fileinfo->filelen) {
-					result = DFS_ReadSector(fileinfo->volinfo->unit, scratch, sector, 1);
-					if (!result) {
-						memcpy(scratch, buffer, remain);
-						result = DFS_WriteSector(fileinfo->volinfo->unit, scratch, sector, 1);
-					}
-				}
-				else {
-					result = DFS_WriteSector(fileinfo->volinfo->unit, buffer, sector, 1);
-				}
-
-				buffer += remain;
-				fileinfo->pointer += remain;
-				if (fileinfo->filelen < fileinfo->pointer) {
-					fileinfo->filelen = fileinfo->pointer;
-				}
-				byteswritten = remain;
-				remain = 0;
-			}
-		}
-
-		*successcount += byteswritten;
-
-		// check to see if we stepped over a cluster boundary
-		if (div(fileinfo->pointer - byteswritten, fileinfo->volinfo->secperclus * SECTOR_SIZE).quot !=
-		  div(fileinfo->pointer, fileinfo->volinfo->secperclus * SECTOR_SIZE).quot) {
-		  	uint32_t lastcluster;
-
-		  	// We've transgressed into another cluster. If we were already at EOF,
-		  	// we need to allocate a new cluster.
-			// An act of minor evil - we use byteswritten as a scratch integer, knowing
-			// that its value is not used after updating *successcount above
-			byteswritten = 0;
-
-			lastcluster = fileinfo->cluster;
-			fileinfo->cluster = DFS_GetFAT(fileinfo->volinfo, scratch, &byteswritten, fileinfo->cluster);
-			
-			// Allocate a new cluster?
-			if (((fileinfo->volinfo->filesystem == FAT12) && (fileinfo->cluster >= 0xff8)) ||
-			  ((fileinfo->volinfo->filesystem == FAT16) && (fileinfo->cluster >= 0xfff8)) ||
-			  ((fileinfo->volinfo->filesystem == FAT32) && (fileinfo->cluster >= 0x0ffffff8))) {
-			  	uint32_t tempclus;
-
-				tempclus = DFS_GetFreeFAT(fileinfo->volinfo, scratch);
-				byteswritten = 0; // invalidate cache
-				if (tempclus == 0x0ffffff7)
-					return DFS_ERRMISC;
-
-				// Link new cluster onto file
-				DFS_SetFAT(fileinfo->volinfo, scratch, &byteswritten, lastcluster, tempclus);
-				fileinfo->cluster = tempclus;
-
-				// Mark newly allocated cluster as end of chain			
-				switch(fileinfo->volinfo->filesystem) {
-					case FAT12:		tempclus = 0xff8;	break;
-					case FAT16:		tempclus = 0xfff8;	break;
-					case FAT32:		tempclus = 0x0ffffff8;	break;
-					default:		return DFS_ERRMISC;
-				}
-				DFS_SetFAT(fileinfo->volinfo, scratch, &byteswritten, fileinfo->cluster, tempclus);
-
-				result = DFS_OK;
-			}
-			// No else clause is required.
 		}
 	}
-	
-	// Update directory entry
-		if (DFS_ReadSector(fileinfo->volinfo->unit, scratch, fileinfo->dirsector, 1))
-			return DFS_ERRMISC;
-		((PDIRENT) scratch)[fileinfo->diroffset].filesize_0 = fileinfo->filelen & 0xff;
-		((PDIRENT) scratch)[fileinfo->diroffset].filesize_1 = (fileinfo->filelen & 0xff00) >> 8;
-		((PDIRENT) scratch)[fileinfo->diroffset].filesize_2 = (fileinfo->filelen & 0xff0000) >> 16;
-		((PDIRENT) scratch)[fileinfo->diroffset].filesize_3 = (fileinfo->filelen & 0xff000000) >> 24;
-		if (DFS_WriteSector(fileinfo->volinfo->unit, scratch, fileinfo->dirsector, 1))
-			return DFS_ERRMISC;
-	return result;
+	if (fmt == 3) return FR_DISK_ERR;
+	if (fmt) return FR_NO_FILESYSTEM;	/* No valid FAT patition is found */
+
+	/* Initialize the file system object */
+	if (disk_readp(buf, bsect, 13, sizeof (buf))) return FR_DISK_ERR;
+
+	fsize = ld_word(buf+BPB_FATSz16-13);				/* Number of sectors per FAT */
+	if (!fsize) fsize = ld_dword(buf+BPB_FATSz32-13);
+
+	fsize *= buf[BPB_NumFATs-13];						/* Number of sectors in FAT area */
+	fs->fatbase = bsect + ld_word(buf+BPB_RsvdSecCnt-13); /* FAT start sector (lba) */
+	fs->csize = buf[BPB_SecPerClus-13];					/* Number of sectors per cluster */
+	fs->n_rootdir = ld_word(buf+BPB_RootEntCnt-13);		/* Nmuber of root directory entries */
+	tsect = ld_word(buf+BPB_TotSec16-13);				/* Number of sectors on the file system */
+	if (!tsect) tsect = ld_dword(buf+BPB_TotSec32-13);
+	mclst = (tsect						/* Last cluster# + 1 */
+		- ld_word(buf+BPB_RsvdSecCnt-13) - fsize - fs->n_rootdir / 16
+		) / fs->csize + 2;
+	fs->n_fatent = (CLUST)mclst;
+
+	fmt = 0;							/* Determine the FAT sub type */
+	if (PF_FS_FAT12 && mclst < 0xFF7) fmt = FS_FAT12;
+	if (PF_FS_FAT16 && mclst >= 0xFF8 && mclst < 0xFFF7) fmt = FS_FAT16;
+	if (PF_FS_FAT32 && mclst >= 0xFFF7) fmt = FS_FAT32;
+	if (!fmt) return FR_NO_FILESYSTEM;
+	fs->fs_type = fmt;
+
+	if (_FS_32ONLY || (PF_FS_FAT32 && fmt == FS_FAT32)) {
+		fs->dirbase = ld_dword(buf+(BPB_RootClus-13));	/* Root directory start cluster */
+	} else {
+		fs->dirbase = fs->fatbase + fsize;				/* Root directory start sector (lba) */
+	}
+	fs->database = fs->fatbase + fsize + fs->n_rootdir / 16;	/* Data start sector (lba) */
+
+	fs->flag = 0;
+	FatFs = fs;
+
+	return FR_OK;
 }
+
+
+
+
+/*-----------------------------------------------------------------------*/
+/* Open or Create a File                                                 */
+/*-----------------------------------------------------------------------*/
+
+FRESULT pf_open (
+	const char *path	/* Pointer to the file name */
+)
+{
+	FRESULT res;
+	DIR dj;
+	BYTE sp[12], dir[32];
+	FATFS *fs = FatFs;
+
+
+	if (!fs) return FR_NOT_ENABLED;		/* Check file system */
+
+	fs->flag = 0;
+	dj.fn = sp;
+	res = follow_path(&dj, dir, path);	/* Follow the file path */
+	if (res != FR_OK) return res;		/* Follow failed */
+	if (!dir[0] || (dir[DIR_Attr] & AM_DIR)) return FR_NO_FILE;	/* It is a directory */
+
+	fs->org_clust = get_clust(dir);		/* File start cluster */
+	fs->fsize = ld_dword(dir+DIR_FileSize);	/* File size */
+	fs->fptr = 0;						/* File pointer */
+	fs->flag = FA_OPENED;
+
+	return FR_OK;
+}
+
+
+
+
+/*-----------------------------------------------------------------------*/
+/* Read File                                                             */
+/*-----------------------------------------------------------------------*/
+#if PF_USE_READ
+
+FRESULT pf_read (
+	void* buff,		/* Pointer to the read buffer (NULL:Forward data to the stream)*/
+	UINT btr,		/* Number of bytes to read */
+	UINT* br		/* Pointer to number of bytes read */
+)
+{
+	DRESULT dr;
+	CLUST clst;
+	DWORD sect, remain;
+	UINT rcnt;
+	BYTE cs, *rbuff = buff;
+	FATFS *fs = FatFs;
+
+
+	*br = 0;
+	if (!fs) return FR_NOT_ENABLED;		/* Check file system */
+	if (!(fs->flag & FA_OPENED)) return FR_NOT_OPENED;	/* Check if opened */
+
+	remain = fs->fsize - fs->fptr;
+	if (btr > remain) btr = (UINT)remain;			/* Truncate btr by remaining bytes */
+
+	while (btr)	{									/* Repeat until all data transferred */
+		if ((fs->fptr % 512) == 0) {				/* On the sector boundary? */
+			cs = (BYTE)(fs->fptr / 512 & (fs->csize - 1));	/* Sector offset in the cluster */
+			if (!cs) {								/* On the cluster boundary? */
+				if (fs->fptr == 0) {				/* On the top of the file? */
+					clst = fs->org_clust;
+				} else {
+					clst = get_fat(fs->curr_clust);
+				}
+				if (clst <= 1) ABORT(FR_DISK_ERR);
+				fs->curr_clust = clst;				/* Update current cluster */
+			}
+			sect = clust2sect(fs->curr_clust);		/* Get current sector */
+			if (!sect) ABORT(FR_DISK_ERR);
+			fs->dsect = sect + cs;
+		}
+		rcnt = 512 - (UINT)fs->fptr % 512;			/* Get partial sector data from sector buffer */
+		if (rcnt > btr) rcnt = btr;
+		dr = disk_readp(rbuff, fs->dsect, (UINT)fs->fptr % 512, rcnt);
+		if (dr) ABORT(FR_DISK_ERR);
+		fs->fptr += rcnt;							/* Advances file read pointer */
+		btr -= rcnt; *br += rcnt;					/* Update read counter */
+		if (rbuff) rbuff += rcnt;					/* Advances the data pointer if destination is memory */
+	}
+
+	return FR_OK;
+}
+#endif
+
+
+
+/*-----------------------------------------------------------------------*/
+/* Write File                                                            */
+/*-----------------------------------------------------------------------*/
+#if PF_USE_WRITE
+
+FRESULT pf_write (
+	const void* buff,	/* Pointer to the data to be written */
+	UINT btw,			/* Number of bytes to write (0:Finalize the current write operation) */
+	UINT* bw			/* Pointer to number of bytes written */
+)
+{
+	CLUST clst;
+	DWORD sect, remain;
+	const BYTE *p = buff;
+	BYTE cs;
+	UINT wcnt;
+	FATFS *fs = FatFs;
+
+
+	*bw = 0;
+	if (!fs) return FR_NOT_ENABLED;		/* Check file system */
+	if (!(fs->flag & FA_OPENED)) return FR_NOT_OPENED;	/* Check if opened */
+
+	if (!btw) {		/* Finalize request */
+		if ((fs->flag & FA__WIP) && disk_writep(0, 0)) ABORT(FR_DISK_ERR);
+		fs->flag &= ~FA__WIP;
+		return FR_OK;
+	} else {		/* Write data request */
+		if (!(fs->flag & FA__WIP)) {	/* Round-down fptr to the sector boundary */
+			fs->fptr &= 0xFFFFFE00;
+		}
+	}
+	remain = fs->fsize - fs->fptr;
+	if (btw > remain) btw = (UINT)remain;			/* Truncate btw by remaining bytes */
+
+	while (btw)	{									/* Repeat until all data transferred */
+		if ((UINT)fs->fptr % 512 == 0) {			/* On the sector boundary? */
+			cs = (BYTE)(fs->fptr / 512 & (fs->csize - 1));	/* Sector offset in the cluster */
+			if (!cs) {								/* On the cluster boundary? */
+				if (fs->fptr == 0) {				/* On the top of the file? */
+					clst = fs->org_clust;
+				} else {
+					clst = get_fat(fs->curr_clust);
+				}
+				if (clst <= 1) ABORT(FR_DISK_ERR);
+				fs->curr_clust = clst;				/* Update current cluster */
+			}
+			sect = clust2sect(fs->curr_clust);		/* Get current sector */
+			if (!sect) ABORT(FR_DISK_ERR);
+			fs->dsect = sect + cs;
+			if (disk_writep(0, fs->dsect)) ABORT(FR_DISK_ERR);	/* Initiate a sector write operation */
+			fs->flag |= FA__WIP;
+		}
+		wcnt = 512 - (UINT)fs->fptr % 512;			/* Number of bytes to write to the sector */
+		if (wcnt > btw) wcnt = btw;
+		if (disk_writep(p, wcnt)) ABORT(FR_DISK_ERR);	/* Send data to the sector */
+		fs->fptr += wcnt; p += wcnt;				/* Update pointers and counters */
+		btw -= wcnt; *bw += wcnt;
+		if ((UINT)fs->fptr % 512 == 0) {
+			if (disk_writep(0, 0)) ABORT(FR_DISK_ERR);	/* Finalize the currtent secter write operation */
+			fs->flag &= ~FA__WIP;
+		}
+	}
+
+	return FR_OK;
+}
+#endif
+
+
+
+/*-----------------------------------------------------------------------*/
+/* Seek File R/W Pointer                                                 */
+/*-----------------------------------------------------------------------*/
+#if PF_USE_LSEEK
+
+FRESULT pf_lseek (
+	DWORD ofs		/* File pointer from top of file */
+)
+{
+	CLUST clst;
+	DWORD bcs, sect, ifptr;
+	FATFS *fs = FatFs;
+
+
+	if (!fs) return FR_NOT_ENABLED;		/* Check file system */
+	if (!(fs->flag & FA_OPENED)) return FR_NOT_OPENED;	/* Check if opened */
+
+	if (ofs > fs->fsize) ofs = fs->fsize;	/* Clip offset with the file size */
+	ifptr = fs->fptr;
+	fs->fptr = 0;
+	if (ofs > 0) {
+		bcs = (DWORD)fs->csize * 512;		/* Cluster size (byte) */
+		if (ifptr > 0 &&
+			(ofs - 1) / bcs >= (ifptr - 1) / bcs) {	/* When seek to same or following cluster, */
+			fs->fptr = (ifptr - 1) & ~(bcs - 1);	/* start from the current cluster */
+			ofs -= fs->fptr;
+			clst = fs->curr_clust;
+		} else {							/* When seek to back cluster, */
+			clst = fs->org_clust;			/* start from the first cluster */
+			fs->curr_clust = clst;
+		}
+		while (ofs > bcs) {				/* Cluster following loop */
+			clst = get_fat(clst);		/* Follow cluster chain */
+			if (clst <= 1 || clst >= fs->n_fatent) ABORT(FR_DISK_ERR);
+			fs->curr_clust = clst;
+			fs->fptr += bcs;
+			ofs -= bcs;
+		}
+		fs->fptr += ofs;
+		sect = clust2sect(clst);		/* Current sector */
+		if (!sect) ABORT(FR_DISK_ERR);
+		fs->dsect = sect + (fs->fptr / 512 & (fs->csize - 1));
+	}
+
+	return FR_OK;
+}
+#endif
+
+
+
+/*-----------------------------------------------------------------------*/
+/* Create a Directroy Object                                             */
+/*-----------------------------------------------------------------------*/
+#if PF_USE_DIR
+
+FRESULT pf_opendir (
+	DIR *dj,			/* Pointer to directory object to create */
+	const char *path	/* Pointer to the directory path */
+)
+{
+	FRESULT res;
+	BYTE sp[12], dir[32];
+	FATFS *fs = FatFs;
+
+
+	if (!fs) {				/* Check file system */
+		res = FR_NOT_ENABLED;
+	} else {
+		dj->fn = sp;
+		res = follow_path(dj, dir, path);		/* Follow the path to the directory */
+		if (res == FR_OK) {						/* Follow completed */
+			if (dir[0]) {						/* It is not the root dir */
+				if (dir[DIR_Attr] & AM_DIR) {	/* The object is a directory */
+					dj->sclust = get_clust(dir);
+				} else {							/* The object is not a directory */
+					res = FR_NO_FILE;
+				}
+			}
+			if (res == FR_OK) {
+				res = dir_rewind(dj);			/* Rewind dir */
+			}
+		}
+	}
+
+	return res;
+}
+
+
+
+
+/*-----------------------------------------------------------------------*/
+/* Read Directory Entry in Sequense                                      */
+/*-----------------------------------------------------------------------*/
+
+FRESULT pf_readdir (
+	DIR *dj,			/* Pointer to the open directory object */
+	FILINFO *fno		/* Pointer to file information to return */
+)
+{
+	FRESULT res;
+	BYTE sp[12], dir[32];
+	FATFS *fs = FatFs;
+
+
+	if (!fs) {				/* Check file system */
+		res = FR_NOT_ENABLED;
+	} else {
+		dj->fn = sp;
+		if (!fno) {
+			res = dir_rewind(dj);
+		} else {
+			res = dir_read(dj, dir);	/* Get current directory item */
+			if (res == FR_NO_FILE) res = FR_OK;
+			if (res == FR_OK) {				/* A valid entry is found */
+				get_fileinfo(dj, dir, fno);	/* Get the object information */
+				res = dir_next(dj);			/* Increment read index for next */
+				if (res == FR_NO_FILE) res = FR_OK;
+			}
+		}
+	}
+
+	return res;
+}
+
+#endif /* PF_USE_DIR */
+

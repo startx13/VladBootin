@@ -1,4 +1,7 @@
-void memcpy(void* dest, void* src, size_t n)
+#include "stdlib.h"
+#include <stddef.h>
+
+void memcpy(void* dest, void* src, int n)
 {
     // Typecast src and dest addresses to (char *)
     char* csrc = (char*)src;
@@ -23,7 +26,7 @@ void* memset(void* b, int c, int len)
     return(b);
 }
 
-size_t strlen(const char* str)
+int strlen(const char* str)
 {
     const char* s;
 
@@ -57,7 +60,7 @@ int memcmp(const void* s1, const void* s2, int len)
     return charCompareStatus;
 }
 
-char* strncpy(char* dst, const char* src, size_t n)
+char* strncpy(char* dst, const char* src, int n)
 {
     int i;
     char* temp;

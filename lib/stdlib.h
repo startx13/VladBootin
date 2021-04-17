@@ -1,8 +1,8 @@
-void memcpy(void *dest, void *src, size_t n);
+void memcpy(void *dest, void *src, int n);
 void  *memset(void *b, int c, int len);
-size_t strlen(const char *str);
+int strlen(const char *str);
 int memcmp(const void *s1, const void *s2, int len);
-char *strncpy(char *dst, const char *src, size_t n);
+char *strncpy(char *dst, const char *src, int n);
 int strcmp(const char *X, const char *Y);
 
 struct div_t {

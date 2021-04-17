@@ -107,11 +107,16 @@ void uart_hex(unsigned int d) {
     }
 }
 
-void uart_dump(void *ptr)
+void uart_dump(void *ptr,unsigned long int size)
 {
+    uart_puts("\r\nDumping memory at 0x");
+    uart_puts(ptr);
+    uart_puts(" size 0x");
+    uart_puts(size);
     unsigned long a,b,d;
     unsigned char c;
-    for(a=(unsigned long)ptr;a<(unsigned long)ptr+512;a+=16) {
+    for(a=(unsigned long)ptr;a<size;a+=16)
+    {
         uart_hex(a); uart_puts(": ");
         for(b=0;b<16;b++) {
             c=*((unsigned char*)(a+b));

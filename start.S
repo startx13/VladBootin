@@ -38,7 +38,7 @@ _start:
 2:
     cmp r4, r9
     blo 1b
- 
+
     // Call kernel_main
     ldr r3, =vladBootin_main
     blx r3

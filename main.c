@@ -4,6 +4,8 @@
 #include "lib/uart.h"
 #include "lib/sd.h"
 #include "lib/fat.h"
+#include "lib/stdlib.h"
+#include "lib/mm.h"
 
 #define CMD_BUFFER_LENGTH 256
 #define TRUE 1
@@ -70,53 +72,13 @@ void printMemoryMap()
 
 }
 
-uint8_t sector[SECTOR_SIZE], sector2[SECTOR_SIZE];
-uint32_t pstart, psize, i;
-uint8_t pactive, ptype;
-VOLINFO vi;
-DIRINFO di;
-DIRENT de;
-uint32_t cache;
-FILEINFO fi;
-uint8_t *p;
-
-
 void vladBootin_main(uint32_t r0, uint32_t r1, uint32_t atags)
 {
     uart_init();
     sd_ret = sd_init();
-    //INIT FAT32
-
-
-
-    // Obtain pointer to first partition on first (only) unit
-    pstart = DFS_GetPtnStart(0, sector, 0, &pactive, &ptype, &psize);
-    if (pstart == 0xffffffff) {
-        printf("Cannot find first partition\r\n");
-        return -1;
-    }
-
-    printf("Partition 0 start sector 0x%-08.8lX active %-02.2hX type %-02.2hX size %-08.8lX\r\n", pstart, pactive, ptype, psize);
-
-    if (DFS_GetVolInfo(0, sector, pstart, &vi)) {
-        printf("Error getting volume information\n");
-        return -1;
-    }
-    printf("Volume label '%-11.11s'\r\n", vi.label);
-    printf("%d sector/s per cluster, %d reserved sector/s, volume total %d sectors.\r\n", vi.secperclus, vi.reservedsecs, vi.numsecs);
-    printf("%d sectors per FAT, first FAT at sector #%d, root dir at #%d.\r\n",vi.secperfat,vi.fat1,vi.rootdir);
-    printf("(For FAT32, the root dir is a CLUSTER number, FAT12/16 it is a SECTOR number)\r\n");
-    printf("%d root dir entries, data area commences at sector #%d.\r\n",vi.rootentries,vi.dataarea);
-    printf("%d clusters (%d bytes) in data area, filesystem IDd as ", vi.numclusters, vi.numclusters * vi.secperclus * SECTOR_SIZE);
-    if (vi.filesystem == FAT12)
-        printf("FAT12.\r\n");
-    else if (vi.filesystem == FAT16)
-        printf("FAT16.\r\n");
-    else if (vi.filesystem == FAT32)
-        printf("FAT32.\r\n");
-    else
-        printf("[unknown]\r\n");
     
+    fat_getpartition();
+
     
     printf(gbanner);
     
@@ -208,7 +170,7 @@ short unsigned int bufCompare(char* buf1,char* buf2,unsigned int len)
     return TRUE;
 }
 
-const char* usage = "\r\n----------------------------------------------\r\nhelp - prints this\r\nbanner - prints VladBootin banner\r\nserialboot - starts boot from serial routine\r\nprintf - print something (printf <string>)\r\ndebug - enable debug log\r\nsdinit - init sd card\r\nfileboot - boot from file kernel7.img\r\ntestfile - dump test file\r\nls - list file\r\nmem - print memory map\r\n----------------------------------------------\r\n";
+const char* usage = "\r\n----------------------------------------------\r\nhelp - prints this\r\nbanner - prints VladBootin banner\r\nserialboot - starts boot from serial routine\r\nprintf - print something (printf <string>)\r\ndebug - enable debug log\r\nsdinit - init sd card\r\nfileboot - boot from file kernel7.img\r\ntestfile - dump test file\r\nls - list file\r\nmem - print memory map\r\nmount - mount fs\r\nrelocate - relocate the program at __end\r\ndump - dump the whole program to stdio\r\ntestalloc - test alloc routine\r\n----------------------------------------------\r\n";
 
 void parseCommand(char* buf,unsigned int *length)
 {
@@ -264,6 +226,10 @@ void parseCommand(char* buf,unsigned int *length)
     char testfile_f[] = "testfile";
     char ls_f[] = "ls";
     char mem_f[] = "mem";
+    char mount_f[] = "mount";
+    char relocate_f[] = "relocate";
+    char dump_f[] = "dump";
+    char testalloc_f[] = "testalloc";
     
     if(bufCompare(command,serialboot,cmd_len))
     {
@@ -360,7 +326,7 @@ void parseCommand(char* buf,unsigned int *length)
     if(bufCompare(command,ls_f,cmd_len))
     {
         sd_ret = sd_init();
-        //fat_listdirectory();
+        fat_listdirectory();
         emptyBuffer(buf,CMD_BUFFER_LENGTH);
         emptyBuffer(command,CMD_BUFFER_LENGTH);
         emptyBuffer(args,CMD_BUFFER_LENGTH);
@@ -378,11 +344,97 @@ void parseCommand(char* buf,unsigned int *length)
         return;
     }
     
+    if(bufCompare(command,mount_f,cmd_len))
+    {
+        emptyBuffer(buf,CMD_BUFFER_LENGTH);
+        emptyBuffer(command,CMD_BUFFER_LENGTH);
+        emptyBuffer(args,CMD_BUFFER_LENGTH);
+        *length = 0;
+        return;
+    }
+    
+    if(bufCompare(command,relocate_f,cmd_len))
+    {
+        relocate();
+        emptyBuffer(buf,CMD_BUFFER_LENGTH);
+        emptyBuffer(command,CMD_BUFFER_LENGTH);
+        emptyBuffer(args,CMD_BUFFER_LENGTH);
+        *length = 0;
+        return;
+    }
+    
+    if(bufCompare(command,dump_f,cmd_len))
+    {
+        memoryDump();
+        emptyBuffer(buf,CMD_BUFFER_LENGTH);
+        emptyBuffer(command,CMD_BUFFER_LENGTH);
+        emptyBuffer(args,CMD_BUFFER_LENGTH);
+        *length = 0;
+        return;
+    }
+    
+    if(bufCompare(command,testalloc_f,cmd_len))
+    {
+        testAlloc();
+        emptyBuffer(buf,CMD_BUFFER_LENGTH);
+        emptyBuffer(command,CMD_BUFFER_LENGTH);
+        emptyBuffer(args,CMD_BUFFER_LENGTH);
+        *length = 0;
+        return;
+    }
+    
     printf("\r\nCommand not found");
     emptyBuffer(buf,CMD_BUFFER_LENGTH);
     emptyBuffer(command,CMD_BUFFER_LENGTH);
     emptyBuffer(args,CMD_BUFFER_LENGTH);
     *length = 0;
+}
+
+void testAlloc()
+{
+    printf("\r\nAllocating block");
+    unsigned int *blockA = alloc(0x3EFE7000);
+
+    if(blockA !=NULL)
+    {
+        printf("\r\nFilling blocks");
+        memset(blockA,'A',0x3EFE7000);
+    }
+    
+}
+
+void memoryDump()
+{
+    unsigned char *start = &__start;
+    unsigned char *end = 0x3F000000;
+    unsigned int size = end - &__start;
+    uart_dump(start,size);
+}
+
+void relocate()
+{
+    //relocate the program at __end
+    unsigned char *start = &__start;
+    unsigned char *end = &__end;
+    unsigned int size = end - start;
+    
+    unsigned int *relocate_addr = alloc(size);
+    printf("\r\nRelocation: __start: 0x%x __end: 0x%x size: 0x%x",start,end,size);
+    
+    for(unsigned int i=0;i<size;i++)
+    {
+        relocate_addr[i] = start[i];
+    }
+    printf("\r\nRelocation Done. Jumping");
+    
+    entry_fn fn = (entry_fn)(relocate_addr);
+    fn(gr0, gr1, gatags);
+    
+}
+
+int readFile(char *buf,const char *fn)
+{
+    return 0;
 }
 
 void bootFromFile()
@@ -392,19 +444,14 @@ void bootFromFile()
 
     if(sd_ret==SD_OK)
     {
-        char *kernel = NULL;//readfile("KERNEL7 IMG");
-      
-        if (DFS_OpenFile(&vi, "KERNEL7.IMG", DFS_WRITE, sector, &fi)) {
-            printf("error opening file\n");
-            return -1;
-        }
-        
-        if(kernel!=NULL)
-        {
-            printf("\r\nBooting kernel....");
-            entry_fn fn = (entry_fn)kernel;
-            fn(gr0, gr1, gatags);
-        }
+        char *kernel = &__end;//readfile("KERNEL7 IMG");
+
+       // if(readFile(kernel,"KERNEL7.IMG"))
+       // {
+       //     printf("\r\nBooting kernel....");
+       //     entry_fn fn = (entry_fn)kernel;
+       //     fn(gr0, gr1, gatags);
+       // }
     }
 }
 
@@ -413,11 +460,8 @@ void testRead()
         // initialize EMMC and detect SD card type
     if(sd_ret==SD_OK)
     {
-        char *f = NULL;//readfile("CONFIG  TXT");
-        if(f!=NULL)
-        {
-            uart_dump(f);
-        }
+        fat_getpartition();
+        uart_dump(fat_readfile(fat_getcluster("CONFIG TXT")),512);
     }
 }
 

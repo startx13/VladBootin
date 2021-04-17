@@ -16,7 +16,8 @@ void wait_cycles(unsigned int n)
  */
 void wait_msec(unsigned int n)
 {
-    wait_msec_st(n);
+    asm volatile("__delay_%=: subs %[n], %[n], #1; bne __delay_%=\n"
+         : "=r"(n): [n]"0"(n) : "cc");
 }
 
 /**

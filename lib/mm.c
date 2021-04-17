@@ -12,7 +12,7 @@ extern unsigned char __end;
 unsigned int nextptr = &__end;
 unsigned int memoryEnd = 0x3F000000;
 
-unsigned int *alloc(unsigned int size)
+unsigned int alloc(unsigned int size)
 {
     unsigned int ptr = nextptr;
     if(ptr + size > memoryEnd)

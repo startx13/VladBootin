@@ -1,8 +1,8 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "uart.h"
+#include "printf.h"
 
-int raspi = 2;
  
 // Memory-Mapped I/O output
 static inline void mmio_write(uint32_t reg, uint32_t data)
@@ -107,15 +107,12 @@ void uart_hex(unsigned int d) {
     }
 }
 
-void uart_dump(void *ptr,unsigned long int size)
+void uart_dump(unsigned int ptr,unsigned int size)
 {
-    uart_puts("\r\nDumping memory at 0x");
-    uart_puts(ptr);
-    uart_puts(" size 0x");
-    uart_puts(size);
+    printf("\r\nDumping memory at 0x%x size 0x%x",ptr,size);
     unsigned long a,b,d;
     unsigned char c;
-    for(a=(unsigned long)ptr;a<size;a+=16)
+    for(a=(unsigned long*)ptr;a<size;a+=16)
     {
         uart_hex(a); uart_puts(": ");
         for(b=0;b<16;b++) {

@@ -11,25 +11,27 @@
 #define TRUE 1
 #define FALSE 0
 
-
-
 int DEBUG = 1;
-
-#if defined(__cplusplus)
-extern "C" /* Use C linkage for kernel_main. */
-#endif
  
 const char* gbanner = "\r\n-------------------------\r\nVladBootin v0.1 beta     \r\nBuilt for Raspberry Pi 2 \r\n-------------------------\r\n";
+const char* usage = "\r\n----------------------------------------------\r\nhelp - prints this\r\nbanner - prints VladBootin banner\r\nserialboot - starts boot from serial routine\r\nprintf - print something (printf <string>)\r\ndebug - enable debug log\r\nsdinit - init sd card\r\nfileboot - boot from file kernel7.img\r\ntestfile - dump test file\r\nls - list file\r\nmem - print memory map\r\nrelocate - relocate the program at __end\r\ndump - dump the whole program to stdio\r\ntestalloc - test alloc routine\r\n----------------------------------------------\r\n";
 
 //Typedefs
 typedef void (*entry_fn)(uint32_t r0, uint32_t r1, uint32_t atags);
 
 //Functions header
+void printMemoryMap();
 void handleMenu();
 void bootFromSerial(char*args,unsigned int args_len);
 void parseCommand(char* buffer,unsigned int *length);
 short unsigned int bufCompare(char* buf1,char* buf2,unsigned int len);
-
+void parseCommand(char* buf,unsigned int *length);
+void testAlloc();
+void testRead();
+void bootFromSerial(char *args,unsigned int args_len);
+void bootFromFile();
+void relocate();
+void memoryDump();
 
 //Global Vars
 uint32_t gr0;
@@ -50,6 +52,7 @@ extern unsigned char __bss_end;
 extern unsigned char __bss_size;
 extern unsigned char __end;
 
+//Functions
 void printMemoryMap()
 {
     printf("\r\nMEMORY MAP");
@@ -70,30 +73,6 @@ void printMemoryMap()
     
     printf("\r\n__end 0x%x\r\n",&__end);
 
-}
-
-void vladBootin_main(uint32_t r0, uint32_t r1, uint32_t atags)
-{
-    uart_init();
-    sd_ret = sd_init();
-    
-    fat_getpartition();
-
-    
-    printf(gbanner);
-    
-    if(DEBUG==1)
-        printMemoryMap();
-    
-    gr0 = r0;
-    gr1 = r1;
-    gatags = atags;
-    
-    //Try to boot from serial. If it fails go to shell.
-    if(!DEBUG)
-        bootFromSerial(NULL,0);
-    
-    handleMenu();
 }
 
 void emptyBuffer(char* buf,unsigned int l)
@@ -146,6 +125,7 @@ void handleMenu()
             {
                 printf("\r\n[DEBUG]: Command: %s",command);
             }
+            command[position+1]='\0';
             parseCommand(command,&position);
             uart_putc('\r');
             uart_putc('\n');
@@ -170,12 +150,11 @@ short unsigned int bufCompare(char* buf1,char* buf2,unsigned int len)
     return TRUE;
 }
 
-const char* usage = "\r\n----------------------------------------------\r\nhelp - prints this\r\nbanner - prints VladBootin banner\r\nserialboot - starts boot from serial routine\r\nprintf - print something (printf <string>)\r\ndebug - enable debug log\r\nsdinit - init sd card\r\nfileboot - boot from file kernel7.img\r\ntestfile - dump test file\r\nls - list file\r\nmem - print memory map\r\nmount - mount fs\r\nrelocate - relocate the program at __end\r\ndump - dump the whole program to stdio\r\ntestalloc - test alloc routine\r\n----------------------------------------------\r\n";
-
 void parseCommand(char* buf,unsigned int *length)
 {
     char command[CMD_BUFFER_LENGTH];
     unsigned int cmd_len = 0;
+    
     char args[CMD_BUFFER_LENGTH];
     unsigned int args_len = 0;
     
@@ -226,7 +205,6 @@ void parseCommand(char* buf,unsigned int *length)
     char testfile_f[] = "testfile";
     char ls_f[] = "ls";
     char mem_f[] = "mem";
-    char mount_f[] = "mount";
     char relocate_f[] = "relocate";
     char dump_f[] = "dump";
     char testalloc_f[] = "testalloc";
@@ -344,15 +322,6 @@ void parseCommand(char* buf,unsigned int *length)
         return;
     }
     
-    if(bufCompare(command,mount_f,cmd_len))
-    {
-        emptyBuffer(buf,CMD_BUFFER_LENGTH);
-        emptyBuffer(command,CMD_BUFFER_LENGTH);
-        emptyBuffer(args,CMD_BUFFER_LENGTH);
-        *length = 0;
-        return;
-    }
-    
     if(bufCompare(command,relocate_f,cmd_len))
     {
         relocate();
@@ -444,7 +413,7 @@ void bootFromFile()
 
     if(sd_ret==SD_OK)
     {
-        char *kernel = &__end;//readfile("KERNEL7 IMG");
+        char *kernel = &__end;
 
        // if(readFile(kernel,"KERNEL7.IMG"))
        // {
@@ -461,14 +430,19 @@ void testRead()
     if(sd_ret==SD_OK)
     {
         fat_getpartition();
-        uart_dump(fat_readfile(fat_getcluster("CONFIG TXT")),512);
+        printf("\r\n");
+        unsigned int *file = fat_readfile(fat_getcluster("CMDLINE TXT"));
+        for(unsigned int i=0;i<512;i++)
+        {
+            printf(file[i]);
+        }
     }
 }
 
 void bootFromSerial(char *args,unsigned int args_len)
 {
-    const unsigned int LOADER_ADDR = 0x8000;
-    const unsigned int LOAD_ADDR =  &__end;
+    unsigned int LOADER_ADDR = &__start;
+    unsigned int LOAD_ADDR =  &__end;
     #define ACK  0x6
     #define SYN  0x16
     
@@ -525,4 +499,29 @@ void bootFromSerial(char *args,unsigned int args_len)
     fn(gr0, gr1, gatags);
     printf("Something went wrong. Dropping shell\r\n");
 
+}
+
+
+void vladBootin_main(uint32_t r0, uint32_t r1, uint32_t atags)
+{
+    uart_init();
+    sd_ret = sd_init();
+    
+    fat_getpartition();
+
+    
+    printf(gbanner);
+    
+    if(DEBUG==1)
+        printMemoryMap();
+    
+    gr0 = r0;
+    gr1 = r1;
+    gatags = atags;
+    
+    //Try to boot from serial. If it fails go to shell.
+    if(!DEBUG)
+        bootFromSerial(NULL,0);
+    
+    handleMenu();
 }

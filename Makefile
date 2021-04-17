@@ -1,4 +1,4 @@
-all:
++all:
 	arm-none-eabi-gcc -mcpu=cortex-a7 -fpic -ffreestanding -c start.S -o build/start.o
 	arm-none-eabi-gcc -mcpu=cortex-a7 -fpic -ffreestanding -std=gnu99 -c main.c -o build/main.o -O2 
 	arm-none-eabi-gcc -mcpu=cortex-a7 -fpic -ffreestanding -std=gnu99 -c lib/uart.c -o build/uart.o -O2 
@@ -13,3 +13,6 @@ all:
 clean:
 	rm build/*
 	rm vladBootin.img
+
+run:
+	qemu-system-arm -machine raspi2b -kernel build/vladBootin.elf -serial stdio -sd Image_Loader/sd.img

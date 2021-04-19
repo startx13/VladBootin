@@ -25,38 +25,42 @@
 
 #include "sd.h"
 #include "uart.h"
-//#include "mm.c"
 #include "stdlib.h"
+#include "printf.h"
 // get the end of bss segment from linker
-extern unsigned char __end;
 
-static unsigned int partitionlba = 0;
+extern unsigned char __end;
+unsigned int partitionlba = 0;
 
 // the BIOS Parameter Block (in Volume Boot Record)
 typedef struct {
-    char            jmp[3];
-    char            oem[8];
-    unsigned char   bps0;
-    unsigned char   bps1;
-    unsigned char   spc;
-    unsigned short  rsc;
-    unsigned char   nf;
-    unsigned char   nr0;
-    unsigned char   nr1;
-    unsigned short  ts16;
-    unsigned char   media;
-    unsigned short  spf16;
-    unsigned short  spt;
-    unsigned short  nh;
-    unsigned int    hs;
-    unsigned int    ts32;
-    unsigned int    spf32;
-    unsigned int    flg;
-    unsigned int    rc;
-    char            vol[6];
-    char            fst[8];
-    char            dmy[20];
-    char            fst2[8];
+    unsigned char       bootjmp[3];
+    unsigned char       oem_name[8];
+    unsigned short      bytes_per_sector;
+    unsigned char       sectors_per_cluster;
+    unsigned short      reserved_sector_count;
+    unsigned char       table_count;
+    unsigned short      root_entry_count;
+    unsigned short      total_sectors_16;
+    unsigned char       media_type;
+    unsigned short      table_size_16;
+    unsigned short      sectors_per_track;
+    unsigned short      head_side_count;
+    unsigned int        hidden_sector_count;
+    unsigned int        total_sectors_32;
+    unsigned int        table_size_32;
+    unsigned short      extended_flags;
+    unsigned short      fat_version;
+    unsigned int        root_cluster;
+    unsigned short      fat_info;
+    unsigned short      backup_BS_sector;
+    unsigned char       reserved_0[12];
+    unsigned char       drive_number;
+    unsigned char       reserved_1;
+    unsigned char       boot_signature;
+    unsigned int        volume_id;
+    unsigned char       volume_label[11];
+    unsigned char       fat_type_label[8];
 } __attribute__((packed)) bpb_t;
 
 // directory entry structure
@@ -82,7 +86,7 @@ static bpb_t *bpb;
 int fat_getpartition(void)
 {
     mbr = alloc(512);
-    bpb = mbr;
+    bpb = alloc(sizeof(bpb_t));
     // read the partitioning table
     if(sd_readblock(0,mbr,1)) {
         // check magic
@@ -91,24 +95,22 @@ int fat_getpartition(void)
             return 0;
         }
         // check partition type
-        if(mbr[0x1C2]!=0xE/*FAT16 LBA*/ && mbr[0x1C2]!=0xC/*FAT32 LBA*/) {
+        if(mbr[0x1C2]!=0x0c)
+        {
             uart_puts("\r\nERROR: Wrong partition type");
             return 0;
         }
         // should be this, but compiler generates bad code...
-        //partitionlba=(unsigned int*)(mbr+0x1C6);
-        partitionlba=mbr[0x1C6] + (mbr[0x1C7]<<8) + (mbr[0x1C8]<<16) + (mbr[0x1C9]<<24);
+        partitionlba= (mbr[0x1C6] + (mbr[0x1c7]<<8) + (mbr[0x1c8]<<16) + (mbr[0x1c9]<<32));
+        printf("\r\nPartition LBA is 0x%x",partitionlba);
         // read the boot record
         if(!sd_readblock(partitionlba,bpb,1)) {
             uart_puts("\r\nERROR: Unable to read boot record");
             return 0;
         }
-        // check file system type. We don't use cluster numbers for that, but magic bytes
-        if( !(bpb->fst[0]=='F' && bpb->fst[1]=='A' && bpb->fst[2]=='T') &&
-            !(bpb->fst2[0]=='F' && bpb->fst2[1]=='A' && bpb->fst2[2]=='T')) {
-            uart_puts("\r\nERROR: Unknown file system type");
-            return 0;
-        }
+        
+        printf("\r\nbootjmp: 0x%x 0x%x 0x%x",bpb->bootjmp[0],bpb->bootjmp[1],bpb->bootjmp[2]);
+        
         return 1;
     }
     return 0;
@@ -119,39 +121,8 @@ int fat_getpartition(void)
  */
 unsigned int fat_getcluster(char *fn)
 {
-    fatdir_t *dir=alloc(sizeof(fatdir_t));
-    unsigned int root_sec, s;
-    // find the root directory's LBA
-    root_sec=((bpb->spf32)*bpb->nf)+bpb->rsc;
-    s = (bpb->nr0 + (bpb->nr1 << 8)) * sizeof(fatdir_t);
-  
-    root_sec+=(bpb->rc-2)*bpb->spc;
-    
-    // add partition LBA
-    root_sec+=partitionlba;
-    // load the root directory
-    if(sd_readblock(root_sec,dir,s/512+1)) {
-        // iterate on each entry and check if it's the one we're looking for
-        while(dir->name[0]!=0)
-        {
-            // is it a valid entry?
-            if(dir->name[0]==0xE5 || dir->attr[0]==0xF) continue;
-            // filename match?
-            if(!memcmp(dir->name,fn,11)) {
-                uart_puts("\r\nFAT File ");
-                uart_puts(fn);
-                uart_puts(" starts at cluster: ");
-                uart_hex(((unsigned int)dir->ch)<<16|dir->cl);
-                // if so, return starting cluster
-                return ((unsigned int)dir->ch)<<16|dir->cl;
-            }
-            dir = alloc(sizeof(fatdir_t));
-        }
-        uart_puts("\r\nERROR: file not found");
-    } else {
-        uart_puts("\r\nERROR: Unable to load root directory");
-    }
-    return 0;
+    fat_getpartition();
+
 }
 
 /**
@@ -159,91 +130,12 @@ unsigned int fat_getcluster(char *fn)
  */
 char *fat_readfile(unsigned int cluster)
 {
-    // BIOS Parameter Block
-    // File allocation tables. We choose between FAT16 and FAT32 dynamically
-    unsigned int *fat32=alloc(bpb->rsc*512);
-    //unsigned short *fat16=(unsigned short*)fat32;
-    // Data pointers
-    unsigned int data_sec, s;
-    unsigned char *data, *ptr;
-    // find the LBA of the first data sector
-    data_sec=((bpb->spf32)*bpb->nf)+bpb->rsc;
-    s = alloc((bpb->nr0 + (bpb->nr1 << 8)) * sizeof(fatdir_t));
-
-    // add partition LBA
-    data_sec+=partitionlba;
-    // dump important properties
-    uart_puts("\r\nFAT Bytes per Sector: ");
-    uart_hex(bpb->bps0 + (bpb->bps1 << 8));
-    uart_puts("\r\nFAT Sectors per Cluster: ");
-    uart_hex(bpb->spc);
-    uart_puts("\r\nFAT Number of FAT: ");
-    uart_hex(bpb->nf);
-    uart_puts("\r\nFAT Sectors per FAT: ");
-    uart_hex((bpb->spf32));
-    uart_puts("\r\nFAT Reserved Sectors Count: ");
-    uart_hex(bpb->rsc);
-    uart_puts("\r\nFAT First data sector: ");
-    uart_hex(data_sec);
-    // load FAT table
-    s=sd_readblock(partitionlba+1,fat32,(bpb->spf32)+bpb->rsc);
-    // end of FAT in memory
-    data=ptr=alloc(fat32+s);
-    // iterate on cluster chain
-    while(cluster>1 && cluster<0xFFF8) {
-        // load all sectors in a cluster
-        sd_readblock((cluster-2)*bpb->spc+data_sec,ptr,bpb->spc);
-        // move pointer, sector per cluster * bytes per sector
-        ptr+=bpb->spc*(bpb->bps0 + (bpb->bps1 << 8));
-        // get the next cluster in chain
-        cluster=fat32[cluster];
-    }
-    return (char*)data;
+    fat_getpartition();
+    
 }
 
 void fat_listdirectory(void)
 {
-    fatdir_t *dir=(fatdir_t*)alloc(sizeof(fatdir_t));
-    unsigned int root_sec, s;
-    // find the root directory's LBA
-    root_sec=((bpb->spf32)*bpb->nf)+bpb->rsc;
-    s = (bpb->nr0 + (bpb->nr1 << 8));
-    uart_puts("\r\nFAT number of root diretory entries: ");
-    uart_hex(s);
-    s *= sizeof(fatdir_t);
-    root_sec+=(bpb->rc-2)*bpb->spc;
-
-    // add partition LBA
-    root_sec+=partitionlba;
-    uart_puts("\r\nFAT root directory LBA: ");
-    uart_hex(root_sec);
-    // load the root directory
-    if(sd_readblock(root_sec,dir,s/512+1)) {
-        uart_puts("\r\nAttrib Cluster  Size     Name\n");
-        // iterate on each entry and print out
-        for(;dir->name[0]!=0;dir++) {
-            // is it a valid entry?
-            if(dir->name[0]==0xE5 || dir->attr[0]==0xF) continue;
-            // decode attributes
-            uart_putc(dir->attr[0]& 1?'R':'.');  // read-only
-            uart_putc(dir->attr[0]& 2?'H':'.');  // hidden
-            uart_putc(dir->attr[0]& 4?'S':'.');  // system
-            uart_putc(dir->attr[0]& 8?'L':'.');  // volume label
-            uart_putc(dir->attr[0]&16?'D':'.');  // directory
-            uart_putc(dir->attr[0]&32?'A':'.');  // archive
-            uart_putc(' ');
-            // staring cluster
-            uart_hex(((unsigned int)dir->ch)<<16|dir->cl);
-            uart_putc(' ');
-            // size
-            uart_hex(dir->size);
-            uart_putc(' ');
-            // filename
-            dir->attr[0]=0;
-            uart_puts(dir->name);
-            uart_putc('\n');
-        }
-    } else {
-        uart_puts("\r\nERROR: Unable to load root directory");
-    }
+    fat_getpartition();
+   
 }

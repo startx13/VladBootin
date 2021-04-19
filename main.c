@@ -6,6 +6,7 @@
 #include "lib/fat.h"
 #include "lib/stdlib.h"
 #include "lib/mm.h"
+#include "lib/lfb.h"
 
 #define CMD_BUFFER_LENGTH 256
 #define TRUE 1
@@ -14,7 +15,7 @@
 int DEBUG = 1;
  
 const char* gbanner = "\r\n-------------------------\r\nVladBootin v0.1 beta     \r\nBuilt for Raspberry Pi 2 \r\n-------------------------\r\n";
-const char* usage = "\r\n----------------------------------------------\r\nhelp - prints this\r\nbanner - prints VladBootin banner\r\nserialboot - starts boot from serial routine\r\nprintf - print something (printf <string>)\r\ndebug - enable debug log\r\nsdinit - init sd card\r\nfileboot - boot from file kernel7.img\r\ntestfile - dump test file\r\nls - list file\r\nmem - print memory map\r\nrelocate - relocate the program at __end\r\ndump - dump the whole program to stdio\r\ntestalloc - test alloc routine\r\n----------------------------------------------\r\n";
+const char* usage = "\r\n----------------------------------------------\r\nhelp - prints this\r\nbanner - prints VladBootin banner\r\nserialboot - starts boot from serial routine\r\nprintf - print something (printf <string>)\r\ndebug - enable debug log\r\nsdinit - init sd card\r\nfileboot - boot from file kernel7.img\r\ntestfile - dump test file\r\nls - list file\r\nmem - print memory map\r\nrelocate - relocate the program at __end\r\ndump - dump heap to stdio\r\ntestalloc - test alloc routine\r\nfatpart - find partition LBA\r\nmmuinit - Start the MMU and interrupt\r\nhomer - show homer\r\n----------------------------------------------\r\n";
 
 //Typedefs
 typedef void (*entry_fn)(uint32_t r0, uint32_t r1, uint32_t atags);
@@ -208,6 +209,9 @@ void parseCommand(char* buf,unsigned int *length)
     char relocate_f[] = "relocate";
     char dump_f[] = "dump";
     char testalloc_f[] = "testalloc";
+    char fatpart_f[] = "fatpart";
+    char mmuinit_f[] = "mmuinit";
+    char homer_f[] = "homer";
     
     if(bufCompare(command,serialboot,cmd_len))
     {
@@ -352,6 +356,37 @@ void parseCommand(char* buf,unsigned int *length)
         return;
     }
     
+    if(bufCompare(command,fatpart_f,cmd_len))
+    {
+        fat_getpartition();
+        emptyBuffer(buf,CMD_BUFFER_LENGTH);
+        emptyBuffer(command,CMD_BUFFER_LENGTH);
+        emptyBuffer(args,CMD_BUFFER_LENGTH);
+        *length = 0;
+        return;
+    }
+    
+    if(bufCompare(command,mmuinit_f,cmd_len))
+    {
+        init_mmu();
+        emptyBuffer(buf,CMD_BUFFER_LENGTH);
+        emptyBuffer(command,CMD_BUFFER_LENGTH);
+        emptyBuffer(args,CMD_BUFFER_LENGTH);
+        *length = 0;
+        return;
+    }
+    
+    if(bufCompare(command,homer_f,cmd_len))
+    {
+        lfb_init();
+        lfb_showpicture();
+        emptyBuffer(buf,CMD_BUFFER_LENGTH);
+        emptyBuffer(command,CMD_BUFFER_LENGTH);
+        emptyBuffer(args,CMD_BUFFER_LENGTH);
+        *length = 0;
+        return;
+    }
+    
     printf("\r\nCommand not found");
     emptyBuffer(buf,CMD_BUFFER_LENGTH);
     emptyBuffer(command,CMD_BUFFER_LENGTH);
@@ -374,9 +409,9 @@ void testAlloc()
 
 void memoryDump()
 {
-    unsigned char *start = &__start;
+    unsigned char *start = &__end;
     unsigned char *end = 0x3F000000;
-    unsigned int size = end - &__start;
+    unsigned int size = end - &__end;
     uart_dump(start,size);
 }
 
@@ -413,14 +448,11 @@ void bootFromFile()
 
     if(sd_ret==SD_OK)
     {
-        char *kernel = &__end;
+       unsigned char *kernel = fat_readfile(fat_getcluster("KERNEL7 IMG"));
 
-       // if(readFile(kernel,"KERNEL7.IMG"))
-       // {
-       //     printf("\r\nBooting kernel....");
-       //     entry_fn fn = (entry_fn)kernel;
-       //     fn(gr0, gr1, gatags);
-       // }
+       printf("\r\nBooting kernel....");
+       entry_fn fn = (entry_fn)kernel;
+       fn(gr0, gr1, gatags);
     }
 }
 
@@ -431,7 +463,7 @@ void testRead()
     {
         fat_getpartition();
         printf("\r\n");
-        unsigned int *file = fat_readfile(fat_getcluster("CMDLINE TXT"));
+        unsigned char *file = fat_readfile(fat_getcluster("CMDLINE TXT"));
         for(unsigned int i=0;i<512;i++)
         {
             printf(file[i]);
@@ -505,11 +537,6 @@ void bootFromSerial(char *args,unsigned int args_len)
 void vladBootin_main(uint32_t r0, uint32_t r1, uint32_t atags)
 {
     uart_init();
-    sd_ret = sd_init();
-    
-    fat_getpartition();
-
-    
     printf(gbanner);
     
     if(DEBUG==1)

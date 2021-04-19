@@ -1,1 +1,2 @@
-unsigned int alloc(unsigned int size);
+unsigned int *alloc(unsigned int size);
+void init_mmu();

@@ -19,12 +19,12 @@ struct block
 extern unsigned char __data;
 extern unsigned char __end;
 
-unsigned int nextptr = &__end;
+unsigned int *nextptr = &__end;
 unsigned int MMIO_BASE = 0x3F000000;
 
 unsigned int *alloc(unsigned int size)
 {
-    unsigned int ptr = nextptr;
+    unsigned int *ptr = nextptr;
     if(ptr + size > MMIO_BASE)
     {
         printf("\r\nNot enough space after __end");
@@ -34,10 +34,16 @@ unsigned int *alloc(unsigned int size)
     return ptr;
 }
 
+static unsigned short int mmu_started = 0;
+
 void init_mmu()
 {
-    interrupt_init();
-    enable_mmu(MMUTABLEBASE, ~0);
+    if(!mmu_started)
+    {
+        interrupt_init();
+        enable_mmu(MMUTABLEBASE, ~0);
+        mmu_started = 1;
+    }
 }
 
 void fiq_interrupt_handler(void)

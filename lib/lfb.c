@@ -33,6 +33,8 @@
 unsigned int width, height, pitch, isrgb;
 unsigned char *lfb;
 
+
+
 /**
  * Set screen resolution to 1024x768
  */

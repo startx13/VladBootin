@@ -6,12 +6,14 @@
 .globl enable_fiq
 .globl disable_irq
 .globl disable_fiq
+.globl halt
+.globl set_reg
 
 // Entry point for the kernel.
 // r15 -> should begin execution at 0x8000.
 // r0 -> 0x00000000
 // r1 -> 0x00000C42 - machine id
-// r2 -> 0x00000100 - start of ATAGS
+// r2 -> 0x00000100 - start of ATAGS 
 // preserve these registers as argument for kernel_main
 _start:
     mrc p15, 0, r5, c0, c0, 5
@@ -48,8 +50,7 @@ irq_interrupt_handler:
     b enable_irq
     // Restoring everything then return to the program
     ldmfd sp!, {r0-r3, r12, pc}
-
-
+ 
 .equ Usr32md, 0x10
 .equ FIQ32md, 0x11
 .equ IRQ32md, 0x12
@@ -114,9 +115,17 @@ _reset:
     ldr r3, = vladBootin_main
     blx r3
 
+.globl set_reg
+set_reg:
+    mov r5, #0x0
+
 halt:
     wfe
-    b halt
+    ldr r3, =stub
+    cmp r6,r5
+    bne halt
+    nop
+    blx r3
 
 enable_irq:
     mrs r1,cpsr
@@ -148,7 +157,7 @@ enable_mmu:
     mcr p15, 0, r2, c8, c7, 0
 
     ;@ Setting the tlb base
-    mov r2,#0
+    mov r2,#0x8000
     mcr p15, 0, r2, c2, c0, 2  ;@ Write Translation Table Base Control Register.
     mcr p15,0,r0,c2,c0,0       ;@ Write Translation Table Base Register 0.
     

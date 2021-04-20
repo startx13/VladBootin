@@ -380,7 +380,7 @@ void parseCommand(char* buf,unsigned int *length)
     {
         lfb_init();
         lfb_init();
-        lfb_showpicture();
+        lfb_showhomer();
         emptyBuffer(buf,CMD_BUFFER_LENGTH);
         emptyBuffer(command,CMD_BUFFER_LENGTH);
         emptyBuffer(args,CMD_BUFFER_LENGTH);
@@ -398,12 +398,12 @@ void parseCommand(char* buf,unsigned int *length)
 void testAlloc()
 {
     printf("\r\nAllocating block");
-    unsigned int *blockA = alloc(0x3EFE7000);
+    unsigned int *blockA = alloc(512);
 
     if(blockA !=NULL)
     {
         printf("\r\nFilling blocks");
-        memset(blockA,'A',0x3EFE7000);
+        memset(blockA,'A',512);
     }
     
 }
@@ -557,4 +557,11 @@ void vladBootin_main(uint32_t r0, uint32_t r1, uint32_t atags)
         bootFromSerial(NULL,0);
     
     handleMenu();
+}
+
+void stub()
+{
+    printf("\r\nCalled stub");
+    set_reg();
+    halt();
 }

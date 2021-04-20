@@ -27,7 +27,7 @@
 #include "uart.h"
 #include "mbox.h"
 #include "homer.h"
-
+#include "banner.h"
 
 
 unsigned int width, height, pitch, isrgb;
@@ -91,7 +91,7 @@ void lfb_init()
         pitch=mbox[33];
         lfb=(void*)((unsigned long)mbox[28]);
     } else {
-        uart_puts("Unable to set screen resolution to 1024x768x32\n");
+        uart_puts("\r\nUnable to set screen resolution to 1024x768x32");
     }
 }
 
@@ -99,6 +99,25 @@ void lfb_init()
  * Show a picture
  */
 void lfb_showpicture()
+{
+    int x,y;
+    unsigned char *ptr=lfb;
+    char *data=banner_data, pixel[4];
+
+    ptr += (height-banner_height)/2*pitch + (width-banner_width)*2;
+    for(y=0;y<banner_height;y++) {
+        for(x=0;x<banner_width;x++) {
+            HEADER_PIXEL(data, pixel);
+            // the image is in RGB. So if we have an RGB framebuffer, we can copy the pixels
+            // directly, but for BGR we must swap R (pixel[0]) and B (pixel[2]) channels.
+            *((unsigned int*)ptr)=isrgb ? *((unsigned int *)&pixel) : (unsigned int)(pixel[0]<<16 | pixel[1]<<8 | pixel[2]);
+            ptr+=4;
+        }
+        ptr+=pitch-banner_width*4;
+    }
+}
+
+void lfb_showhomer()
 {
     int x,y;
     unsigned char *ptr=lfb;

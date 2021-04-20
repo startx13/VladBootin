@@ -8,6 +8,7 @@ extern void enable_mmu();
 extern void loop();
 
 #define MMUTABLEBASE 0x00004000
+#define MMIO_BASE 0x3F000000
 
 struct block
 {
@@ -19,13 +20,13 @@ struct block
 extern unsigned char __data;
 extern unsigned char __end;
 
-unsigned int *nextptr = &__end;
-unsigned int MMIO_BASE = 0x3F000000;
+unsigned int nextptr = &__end;
 
-unsigned int *alloc(unsigned int size)
+unsigned int alloc(unsigned int size)
 {
-    unsigned int *ptr = nextptr;
-    if(ptr + size > MMIO_BASE)
+    unsigned int ptr = nextptr;
+    printf("\r\nAllocating 0x%x bytes at 0x%x MMIO_BASE AT 0x%x",size,ptr,MMIO_BASE);
+    if((ptr + size) > MMIO_BASE)
     {
         printf("\r\nNot enough space after __end");
         return NULL;

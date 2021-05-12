@@ -159,7 +159,9 @@ void parseCommand(char* buf,unsigned int *length)
     char args[CMD_BUFFER_LENGTH];
     unsigned int args_len = 0;
     
-    unsigned int r = 0;
+    emptyBuffer(command,CMD_BUFFER_LENGTH);
+    emptyBuffer(args,CMD_BUFFER_LENGTH);
+    
     for(unsigned int i=0;i<*length;i++)
     {
         if(buf[i] == ' ' || buf[i] == 0)
@@ -168,7 +170,6 @@ void parseCommand(char* buf,unsigned int *length)
             {
                 printf("\r\n[DEBUG]: Found space at index %d",i);
             }
-            r = i;
             break;
         }
         command[i] = buf[i];
@@ -180,14 +181,14 @@ void parseCommand(char* buf,unsigned int *length)
         printf("\r\n[DEBUG]: CMD: %s",command);
     }
     
-    for(unsigned int j=r;j<*length;j++)
+    for(unsigned int j=cmd_len+1;j<*length;j++)
     {
+        args[args_len]=buf[j];
+        args_len++;
         if(buf[j] = '\0')
         {
             break;
         }
-        args[args_len]=buf[j];
-        args_len++;
     }
     
     if(DEBUG)
@@ -245,7 +246,7 @@ void parseCommand(char* buf,unsigned int *length)
     
     if(bufCompare(command,printf_f,cmd_len))
     {
-        printf("\r\n%s\n",args);
+        printf("\r\n%s",args);
         emptyBuffer(buf,CMD_BUFFER_LENGTH);
         emptyBuffer(command,CMD_BUFFER_LENGTH);
         emptyBuffer(args,CMD_BUFFER_LENGTH);
@@ -462,7 +463,7 @@ void testRead()
         // initialize EMMC and detect SD card type
     if(sd_ret==SD_OK)
     {
-        fat_getpartition();
+
         printf("\r\n");
         unsigned char *file = fat_readfile(fat_getcluster("CMDLINE TXT"));
         for(unsigned int i=0;i<512;i++)
@@ -559,9 +560,8 @@ void vladBootin_main(uint32_t r0, uint32_t r1, uint32_t atags)
     handleMenu();
 }
 
-void stub()
+void stop_core()
 {
-    printf("\r\nCalled stub");
-    set_reg();
+    printf("\r\nStopping Core");
     halt();
 }

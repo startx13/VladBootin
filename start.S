@@ -115,17 +115,10 @@ _reset:
     ldr r3, = vladBootin_main
     blx r3
 
-.globl set_reg
-set_reg:
-    mov r5, #0x0
-
 halt:
     wfe
-    ldr r3, =stub
-    cmp r6,r5
     bne halt
-    nop
-    blx r3
+
 
 enable_irq:
     mrs r1,cpsr

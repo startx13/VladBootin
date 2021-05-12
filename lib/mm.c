@@ -49,27 +49,27 @@ void init_mmu()
 
 void fiq_interrupt_handler(void)
 {
-  uart_puts("FIQ Interrupt !\r\n");
+    printf("\r\nFIQ Interrupt");
 }
 
 void undefined_instruction_interrupt_handler(void)
 {
-  uart_puts("Undefined Instruction Interrupt !\r\n");
+    printf("\r\nUndefined Instruction Interrupt");
 }
 
 void bad_interrupt_handler(void)
 {
-  uart_puts("Bad Interrupt !\r\n");
+    printf("\r\nBad Interrupt");
 }
 
 void data_abort_interrupt_handler(void)
 {
-  uart_puts("Data abort interrupt !\r\n");
+  printf("\r\nData abort interrupt");
 }
 
 void irq_interrupt_handler_c(void)
 {
-  uart_puts("IRQ Interrupt !\r\n");
+    printf("\r\nIRQ Interrupt");
 }
 
 void interrupt_init() {

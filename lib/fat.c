@@ -81,12 +81,12 @@ typedef struct {
  */
 
 static unsigned char *mbr;
-static bpb_t *bpb;
+static  bpb_t *bpb;
 
 int fat_getpartition(void)
 {
-    mbr = alloc(512);
-    bpb = alloc(sizeof(bpb_t));
+    *mbr = (unsigned char*) alloc(512);
+    bpb =  (bpb_t *) alloc(sizeof(bpb_t));
     // read the partitioning table
     if(sd_readblock(0,mbr,1)) {
         // check magic

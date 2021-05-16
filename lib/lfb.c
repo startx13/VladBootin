@@ -28,12 +28,14 @@
 #include "mbox.h"
 #include "homer.h"
 #include "banner.h"
+#include "printf.h"
 
 
 unsigned int width, height, pitch, isrgb;
 unsigned char *lfb;
 
-
+#define WID 800
+#define HEI 600
 
 /**
  * Set screen resolution to 1024x768
@@ -46,14 +48,14 @@ void lfb_init()
     mbox[2] = 0x48003;  //set phy wh
     mbox[3] = 8;
     mbox[4] = 8;
-    mbox[5] = 1024;         //FrameBufferInfo.width
-    mbox[6] = 768;          //FrameBufferInfo.height
+    mbox[5] = WID;         //FrameBufferInfo.width
+    mbox[6] = HEI;          //FrameBufferInfo.height
 
     mbox[7] = 0x48004;  //set virt wh
     mbox[8] = 8;
     mbox[9] = 8;
-    mbox[10] = 1024;        //FrameBufferInfo.virtual_width
-    mbox[11] = 768;         //FrameBufferInfo.virtual_height
+    mbox[10] = WID;        //FrameBufferInfo.virtual_width
+    mbox[11] = HEI;         //FrameBufferInfo.virtual_height
 
     mbox[12] = 0x48009; //set virt offset
     mbox[13] = 8;
@@ -91,7 +93,7 @@ void lfb_init()
         pitch=mbox[33];
         lfb=(void*)((unsigned long)mbox[28]);
     } else {
-        uart_puts("\r\nUnable to set screen resolution to 1024x768x32");
+        printf("\r\nUnable to set screen resolution to %dx%dx32",WID,HEI);
     }
 }
 

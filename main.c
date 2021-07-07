@@ -14,8 +14,8 @@
 
 unsigned short int DEBUG = 1;
  
-const char* gbanner = "\r\n-------------------------\r\nVladBootin v0.1 beta     \r\nBuilt for Raspberry Pi 2 \r\nBuild Timestamp %s\r\n-------------------------\r\n";
-const char* usage = "\r\n----------------------------------------------\r\nhelp - prints this\r\nbanner - prints VladBootin banner\r\nserialboot - starts boot from serial routine\r\nprintf - print something (printf <string>)\r\ndebug - enable debug log\r\nsdinit - init sd card\r\nfileboot - boot from file kernel7.img\r\ntestfile - dump test file\r\nls - list file\r\nmem - print memory map\r\nrelocate - relocate the program at __end\r\ndump - dump heap to stdio\r\ntestalloc - test alloc routine\r\nfatpart - find partition LBA\r\nmmuinit - Start the MMU and interrupt\r\nhomer - show picture\r\nmemreset - clear memory\r\nclearfb - clear framebuffer\r\ncat - print a file (cat <file>)\r\n----------------------------------------------\r\n";
+const char* gbanner = "\r\n-------------------------\r\nVladBootin v0.1 beta     \r\nBuilt for Raspberry Pi 2 \r\nBuild Timestamp: %s\r\nGCC version: %d.%d\r\n-------------------------\r\n";
+const char* usage = "\r\n----------------------------------------------\r\nhelp - prints this\r\nbanner - prints VladBootin banner\r\nserialboot - starts boot from serial routine\r\nprintf - print something (printf <string>)\r\ndebug - enable debug log\r\nsdinit - init sd card\r\nfileboot - boot from file kernel7.img\r\ntestfile - dump test file\r\nls - list file\r\nmem - print memory map\r\nrelocate - relocate the program at __end\r\ndump - dump heap to stdio\r\ntestalloc - test alloc routine\r\nfatpart - find partition LBA\r\nmmuinit - Start the MMU and interrupt\r\nhomer - show picture\r\nmemreset - clear memory\r\nclearfb - clear framebuffer\r\ncat - print a file (cat <file>)\r\nboot - boot from file (boot <file>)\r\n----------------------------------------------\r\n";
 
 //Typedefs
 typedef void (*entry_fn)(uint32_t r0, uint32_t r1, uint32_t atags);
@@ -220,6 +220,7 @@ void parseCommand(char* buf,unsigned int *length)
     char memreset_f[] = "memreset";
     char clearfb_f[] = "clearfb";
     char cat_f[] = "cat";
+    char boot_f[] = "boot";
     
     if(bufCompare(command,serialboot,cmd_len))
     {
@@ -233,7 +234,7 @@ void parseCommand(char* buf,unsigned int *length)
     
     if(bufCompare(command,banner,cmd_len))
     {
-        printf(gbanner,__TIMESTAMP__);
+        printf(gbanner,__TIMESTAMP__,__GNUC__, __GNUC_MINOR__);
         emptyBuffer(buf,CMD_BUFFER_LENGTH);
         emptyBuffer(command,CMD_BUFFER_LENGTH);
         emptyBuffer(args,CMD_BUFFER_LENGTH);
@@ -439,6 +440,30 @@ void parseCommand(char* buf,unsigned int *length)
         return;
     }
     
+    if(bufCompare(command,boot_f,cmd_len))
+    {
+        if(sd_ret==SD_OK)
+        {
+            unsigned int cluster = fat_getcluster(args);
+             if(cluster)
+             {
+                 unsigned char *file = fat_readfile(cluster);
+                 printf("\r\nBooting.....");
+                 entry_fn fn = (entry_fn*)file;
+                 fn(gr0, gr1, gatags);
+                
+             }
+             else
+             {
+                 printf("\r\n[MAIN] Error Reading file");
+             }
+        }
+        emptyBuffer(buf,CMD_BUFFER_LENGTH);
+        emptyBuffer(command,CMD_BUFFER_LENGTH);
+        emptyBuffer(args,CMD_BUFFER_LENGTH);
+        *length = 0;
+        return;
+    }
     printf("\r\nCommand not found");
     emptyBuffer(buf,CMD_BUFFER_LENGTH);
     emptyBuffer(command,CMD_BUFFER_LENGTH);
@@ -488,16 +513,23 @@ void relocate()
     
 }
 
+
+
 void bootFromFile()
 {
 
     if(sd_ret==SD_OK)
     {
-       unsigned char *kernel = fat_readfile(fat_getcluster("KERNEL7 IMG"));
+        unsigned int cluster = fat_getcluster("KERNEL7 IMG");
+        
+        if(cluster)
+        {
+            unsigned char *kernel = fat_readfile(cluster);
 
-       printf("\r\nBooting kernel....");
-       entry_fn fn = (entry_fn)kernel;
-       fn(gr0, gr1, gatags);
+            printf("\r\nBooting kernel....");
+            entry_fn fn = (entry_fn*)kernel;
+            fn(gr0, gr1, gatags);
+        }
     }
 }
 
@@ -518,9 +550,9 @@ void bootFromSerial(char *args,unsigned int args_len)
     #define ACK  0x6
     #define SYN  0x16
     
-    printf("\r\nBooting from serial.....\r\n");
+    printf("\r\nBooting from serial.....");
     
-    printf("Waiting for console to attach......\r\n");
+    printf("\r\nWaiting for console to attach......");
     
     char c;
     do
@@ -529,7 +561,7 @@ void bootFromSerial(char *args,unsigned int args_len)
         
     }while(c!=SYN);
     
-    printf("Waiting for kernel image size......\r\n");
+    printf("\r\nWaiting for kernel image size......");
     
     unsigned int size = uart_getc();
     size |= uart_getc() << 8;
@@ -537,7 +569,7 @@ void bootFromSerial(char *args,unsigned int args_len)
     size |= uart_getc() << 24;
     
     
-    printf("Recived Image size: 0x%x\r\n",size);
+    printf("\r\nRecived Image size: 0x%x",size);
     
     //Q  W  E   R
     //51 57 45  52
@@ -547,30 +579,30 @@ void bootFromSerial(char *args,unsigned int args_len)
     
     if(size == 0x52455751 && DEBUG)
     {
-        printf("Recived exit sequence\r\n");
+        printf("\r\nRecived exit sequence");
         return;
     }
     
     if (kernel + size < kernel || kernel + size > 0x3F000000)
     {
-        printf("Wrong Image size\r\n");
+        printf("\r\nWrong Image size");
         return;
     }
     else
     {
-        printf("Image Size correct\r\n");
+        printf("\r\nImage Size correct");
     }
-    printf("Waiting for the Image......\r\n");
+    printf("\r\nWaiting for the Image......");
     
     while(size-- > 0)
     {
         *kernel++ = uart_getc();
     }
 
-    printf("Booting the kernel\r\n");
+    printf("\r\nBooting the kernel");
     entry_fn fn = (entry_fn)kernel;
     fn(gr0, gr1, gatags);
-    printf("Something went wrong. Dropping shell\r\n");
+    printf("\r\nSomething went wrong. Dropping shell");
 
 }
 
@@ -583,7 +615,7 @@ void vladBootin_main(uint32_t r0, uint32_t r1, uint32_t atags)
     lfb_init();
     lfb_init();
     
-    printf(gbanner,__TIMESTAMP__);
+    printf(gbanner,__TIMESTAMP__,__GNUC__, __GNUC_MINOR__);
     lfb_showpicture();
     
     if(DEBUG==1)

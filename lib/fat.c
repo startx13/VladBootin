@@ -86,7 +86,7 @@ int fat_getpartition(void)
     if(!loaded)
     {
         mbr = alloc(512);
-        bpb = mbr;
+        bpb = alloc(sizeof(bpb_t));
         loaded = 1;
     }
     if(sd_readblock(0,mbr,1)) {
@@ -121,7 +121,7 @@ int fat_getpartition(void)
 unsigned int fat_getcluster(char *fn)
 {
     fat_getpartition();
-    fatdir_t *dir=alloc(sizeof(fatdir_t));
+    
     unsigned int root_sec, s;
     // find the root directory's LBA
     root_sec=((bpb->spf16?bpb->spf16:bpb->spf32)*bpb->nf)+bpb->rsc;
@@ -133,7 +133,8 @@ unsigned int fat_getcluster(char *fn)
     // add partition LBA
     root_sec+=partitionlba;
     // load the root directory
-    if(sd_readblock(root_sec,(unsigned char*)dir,s/512+1)) {
+    fatdir_t *dir=alloc(sizeof(fatdir_t) * (s/512+2));
+    if(sd_readblock(root_sec,(unsigned char*)dir,s/512+2)) {
         // iterate on each entry and check if it's the one we're looking for
         for(;dir->name[0]!=0;dir++) {
             // is it a valid entry?
@@ -161,7 +162,7 @@ unsigned int fat_getcluster(char *fn)
 char *fat_readfile(unsigned int cluster)
 {
     unsigned int *fat32=alloc(bpb->rsc*512);
-    unsigned short *fat16=(unsigned short*)fat32;
+    unsigned short *fat16=fat32;
     // Data pointers
     unsigned int data_sec, s;
     unsigned int *data, *ptr;
@@ -188,16 +189,16 @@ char *fat_readfile(unsigned int cluster)
     uart_puts("\r\n[FAT] First data sector: ");
     uart_hex(data_sec);
     // load FAT table
-    unsigned char *table = alloc(1);
+    unsigned char *table = alloc(512 * ((bpb->spf16?bpb->spf16:bpb->spf32)+bpb->rsc));
     s=sd_readblock(partitionlba+1,table,(bpb->spf16?bpb->spf16:bpb->spf32)+bpb->rsc);
     // end of FAT in memory
-    data=ptr=alloc(s);
+    data=ptr=alloc(512 * bpb->spc);
     // iterate on cluster chain
     while(cluster>1 && cluster<0xFFF8) {
         // load all sectors in a cluster
         sd_readblock((cluster-2)*bpb->spc+data_sec,ptr,bpb->spc);
         // move pointer, sector per cluster * bytes per sector
-        ptr=alloc(bpb->spc*(bpb->bps0 + (bpb->bps1 << 8)));
+        ptr=alloc(512 * bpb->spc);
         // get the next cluster in chain
         cluster=bpb->spf16>0?fat16[cluster]:fat32[cluster];
     }
@@ -211,7 +212,7 @@ void fat_listdirectory(void)
     unsigned int root_sec, s;
     // find the root directory's LBA
     root_sec=((bpb->spf16?bpb->spf16:bpb->spf32)*bpb->nf)+bpb->rsc;
-    s = (bpb->nr0 + (bpb->nr1 << 8));
+    s = (bpb->nr0 || (bpb->nr1 << 8));
     uart_puts("\r\n[FAT] FAT number of root diretory entries: ");
     uart_hex(s);
     s *= sizeof(fatdir_t);
@@ -225,8 +226,8 @@ void fat_listdirectory(void)
     uart_hex(root_sec);
 
     // load the root directory
-    fatdir_t *dir = alloc(sizeof(fatdir_t));
-    if(sd_readblock(root_sec,(unsigned char*)dir,s/512+1)) {
+    fatdir_t *dir = alloc(sizeof(fatdir_t) * (s/512+2));
+    if(sd_readblock(root_sec,(unsigned char*)dir,s/512+2)) {
         uart_puts("\r\nAttrib Cluster  Size     Name\r\n");
         // iterate on each entry and print out
         for(;dir->name[0]!=0 && dir->name[0]!='U';dir++) {

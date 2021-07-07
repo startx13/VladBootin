@@ -15,7 +15,7 @@
 unsigned short int DEBUG = 1;
  
 const char* gbanner = "\r\n-------------------------\r\nVladBootin v0.1 beta     \r\nBuilt for Raspberry Pi 2 \r\nBuild Timestamp %s\r\n-------------------------\r\n";
-const char* usage = "\r\n----------------------------------------------\r\nhelp - prints this\r\nbanner - prints VladBootin banner\r\nserialboot - starts boot from serial routine\r\nprintf - print something (printf <string>)\r\ndebug - enable debug log\r\nsdinit - init sd card\r\nfileboot - boot from file kernel7.img\r\ntestfile - dump test file\r\nls - list file\r\nmem - print memory map\r\nrelocate - relocate the program at __end\r\ndump - dump heap to stdio\r\ntestalloc - test alloc routine\r\nfatpart - find partition LBA\r\nmmuinit - Start the MMU and interrupt\r\nhomer - show picture\r\nmemreset - clear memory\r\nclearfb - clear framebuffer\r\ncat - print a file (cat <file>)----------------------------------------------\r\n";
+const char* usage = "\r\n----------------------------------------------\r\nhelp - prints this\r\nbanner - prints VladBootin banner\r\nserialboot - starts boot from serial routine\r\nprintf - print something (printf <string>)\r\ndebug - enable debug log\r\nsdinit - init sd card\r\nfileboot - boot from file kernel7.img\r\ntestfile - dump test file\r\nls - list file\r\nmem - print memory map\r\nrelocate - relocate the program at __end\r\ndump - dump heap to stdio\r\ntestalloc - test alloc routine\r\nfatpart - find partition LBA\r\nmmuinit - Start the MMU and interrupt\r\nhomer - show picture\r\nmemreset - clear memory\r\nclearfb - clear framebuffer\r\ncat - print a file (cat <file>)\r\n----------------------------------------------\r\n";
 
 //Typedefs
 typedef void (*entry_fn)(uint32_t r0, uint32_t r1, uint32_t atags);

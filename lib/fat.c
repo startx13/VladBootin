@@ -188,16 +188,16 @@ char *fat_readfile(unsigned int cluster)
     uart_puts("\r\n[FAT] First data sector: ");
     uart_hex(data_sec);
     // load FAT table
-    unsigned char *table = alloc((bpb->spf16?bpb->spf16:bpb->spf32)+bpb->rsc);
+    unsigned char *table = alloc(1);
     s=sd_readblock(partitionlba+1,table,(bpb->spf16?bpb->spf16:bpb->spf32)+bpb->rsc);
     // end of FAT in memory
-    data=ptr=alloc(512*s);
+    data=ptr=alloc(s);
     // iterate on cluster chain
     while(cluster>1 && cluster<0xFFF8) {
         // load all sectors in a cluster
         sd_readblock((cluster-2)*bpb->spc+data_sec,ptr,bpb->spc);
         // move pointer, sector per cluster * bytes per sector
-        ptr+=bpb->spc*(bpb->bps0 + (bpb->bps1 << 8));
+        ptr=alloc(bpb->spc*(bpb->bps0 + (bpb->bps1 << 8)));
         // get the next cluster in chain
         cluster=bpb->spf16>0?fat16[cluster]:fat32[cluster];
     }

@@ -232,7 +232,7 @@ void parseCommand(char* buf,unsigned int *length)
     
     if(bufCompare(command,banner,cmd_len))
     {
-        printf(gbanner);
+        printf(gbanner,__TIMESTAMP__);
         emptyBuffer(buf,CMD_BUFFER_LENGTH);
         emptyBuffer(command,CMD_BUFFER_LENGTH);
         emptyBuffer(args,CMD_BUFFER_LENGTH);
@@ -496,8 +496,7 @@ void testRead()
 
 void bootFromSerial(char *args,unsigned int args_len)
 {
-    unsigned int LOADER_ADDR = &__start;
-    unsigned int LOAD_ADDR =  &__end;
+
     #define ACK  0x6
     #define SYN  0x16
     
@@ -526,13 +525,15 @@ void bootFromSerial(char *args,unsigned int args_len)
     //51 57 45  52
     //0x52455751
     
+    unsigned char *kernel = alloc(size);
+    
     if(size == 0x52455751 && DEBUG)
     {
         printf("Recived exit sequence\r\n");
         return;
     }
     
-    if (LOAD_ADDR + size < LOAD_ADDR || LOAD_ADDR + size > 0x3F000000)
+    if (kernel + size < kernel || kernel + size > 0x3F000000)
     {
         printf("Wrong Image size\r\n");
         return;
@@ -543,14 +544,13 @@ void bootFromSerial(char *args,unsigned int args_len)
     }
     printf("Waiting for the Image......\r\n");
     
-    char *kernel = (char*)LOAD_ADDR;
     while(size-- > 0)
     {
         *kernel++ = uart_getc();
     }
 
     printf("Booting the kernel\r\n");
-    entry_fn fn = (entry_fn)LOAD_ADDR;
+    entry_fn fn = (entry_fn)kernel;
     fn(gr0, gr1, gatags);
     printf("Something went wrong. Dropping shell\r\n");
 

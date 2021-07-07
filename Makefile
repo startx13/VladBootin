@@ -24,6 +24,6 @@ clean:
 	rm vladBootin.img
 
 run: all
-	sudo qemu-system-arm -machine raspi2b -kernel build/vladBootin.elf -serial stdio -gdb tcp::9000
+	sudo qemu-system-arm -machine raspi2b -kernel build/vladBootin.elf -serial stdio -gdb tcp::9000 -sd Image_Loader/sd.img
 
 	

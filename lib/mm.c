@@ -34,7 +34,7 @@ void mem_clear(unsigned int *ptr, unsigned int size)
 
 void reset_mem()
 {
-    printf("\r\n[MM] Reseting memory");
+    //printf("\r\n[MM] Reseting memory");
     mem_clear(&__end,nextptr);
     nextptr = &__end;
 }
@@ -48,14 +48,14 @@ unsigned int alloc(unsigned int size)
 {
     
     unsigned int ptr = nextptr;
-    printf("\r\n[MM] Allocating 0x%x bytes at 0x%x MMIO_BASE AT 0x%x",size,ptr,MMIO_BASE);
+    //printf("\r\n[MM] Allocating 0x%x bytes at 0x%x MMIO_BASE AT 0x%x",size,ptr,MMIO_BASE);
     if((ptr + size) > MMIO_BASE)
     {
         printf("\r\n[MM] Not enough space after __end");
         return NULL;
     }
     nextptr = ptr+size;
-    printf("\r\n[MM] Cleaning block");
+    //printf("\r\n[MM] Cleaning block");
     mem_clear(ptr,size);
     return ptr;
 }

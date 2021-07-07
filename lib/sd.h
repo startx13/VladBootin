@@ -3,4 +3,4 @@
 #define SD_ERROR            -2
 
 int sd_init();
-int sd_readblock(unsigned int lba, unsigned char *buffer, unsigned int num);
+int sd_readblock(unsigned int lba, unsigned int *buffer, unsigned int num);

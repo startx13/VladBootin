@@ -14,7 +14,7 @@
 
 unsigned short int DEBUG = 1;
  
-const char* gbanner = "\r\n-------------------------\r\nVladBootin v0.1 beta     \r\nBuilt for Raspberry Pi 2 \r\n-------------------------\r\n";
+const char* gbanner = "\r\n-------------------------\r\nVladBootin v0.1 beta     \r\nBuilt for Raspberry Pi 2 \r\nBuild Timestamp %s\r\n-------------------------\r\n";
 const char* usage = "\r\n----------------------------------------------\r\nhelp - prints this\r\nbanner - prints VladBootin banner\r\nserialboot - starts boot from serial routine\r\nprintf - print something (printf <string>)\r\ndebug - enable debug log\r\nsdinit - init sd card\r\nfileboot - boot from file kernel7.img\r\ntestfile - dump test file\r\nls - list file\r\nmem - print memory map\r\nrelocate - relocate the program at __end\r\ndump - dump heap to stdio\r\ntestalloc - test alloc routine\r\nfatpart - find partition LBA\r\nmmuinit - Start the MMU and interrupt\r\nhomer - show picture\r\nmemreset - clear memory\r\nclearfb - clear framebuffer\r\n----------------------------------------------\r\n";
 
 //Typedefs
@@ -473,8 +473,6 @@ int readFile(char *buf,const char *fn)
 void bootFromFile()
 {
 
-    printf("\r\nReading kernel7.img");
-
     if(sd_ret==SD_OK)
     {
        unsigned char *kernel = fat_readfile(fat_getcluster("KERNEL7 IMG"));
@@ -490,13 +488,9 @@ void testRead()
         // initialize EMMC and detect SD card type
     if(sd_ret==SD_OK)
     {
-
-        printf("\r\n");
         unsigned char *file = fat_readfile(fat_getcluster("CMDLINE TXT"));
-        for(unsigned int i=0;i<512;i++)
-        {
-            printf(file[i]);
-        }
+        printf("\r\n");
+        printf(file);
     }
 }
 
@@ -566,11 +560,12 @@ void bootFromSerial(char *args,unsigned int args_len)
 void vladBootin_main(uint32_t r0, uint32_t r1, uint32_t atags)
 {
     //init_mmu();
+    sd_init();
     uart_init();    
     lfb_init();
     lfb_init();
     
-    printf(gbanner);
+    printf(gbanner,__TIMESTAMP__);
     lfb_showpicture();
     
     if(DEBUG==1)

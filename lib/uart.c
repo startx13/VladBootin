@@ -109,7 +109,7 @@ void uart_hex(unsigned int d) {
 
 void uart_dump(unsigned int ptr,unsigned int size)
 {
-    printf("\r\nDumping memory at 0x%x size 0x%x\r\n",ptr,size);
+    printf("\r\nDumping memory at 0x%x size 0x%x\r\n",ptr,size-ptr);
     unsigned long a,b,d;
     unsigned char c;
     for(a=(unsigned long*)ptr;a<size;a+=16)

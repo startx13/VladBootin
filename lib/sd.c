@@ -346,7 +346,7 @@ int sd_init()
     if(sd_scr[0] & SCR_SUPP_SET_BLKCNT)
         uart_puts("\r\nSET_BLKCNT ");
     if(ccs)
-        uart_puts("CCS ");
+        uart_puts("\r\nCCS ");
 
     sd_scr[0]&=~SCR_SUPP_CCS;
     sd_scr[0]|=ccs;

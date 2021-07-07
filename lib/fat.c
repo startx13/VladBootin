@@ -85,31 +85,31 @@ static  bpb_t *bpb;
 
 int fat_getpartition(void)
 {
-    *mbr = (unsigned char*) alloc(512);
-    bpb =  (bpb_t *) alloc(sizeof(bpb_t));
+    mbr = alloc(512);
+    bpb =  mbr;
     // read the partitioning table
     if(sd_readblock(0,mbr,1)) {
         // check magic
         if(mbr[510]!=0x55 || mbr[511]!=0xAA) {
-            uart_puts("\r\nERROR: Bad magic in MBR");
+            uart_puts("\r\n[FAT] ERROR: Bad magic in MBR");
             return 0;
         }
         // check partition type
         if(mbr[0x1C2]!=0x0c)
         {
-            uart_puts("\r\nERROR: Wrong partition type");
+            uart_puts("\r\n[FAT] ERROR: Wrong partition type");
             return 0;
         }
         // should be this, but compiler generates bad code...
         partitionlba= (mbr[0x1C6] + (mbr[0x1c7]<<8) + (mbr[0x1c8]<<16) + (mbr[0x1c9]<<32));
-        printf("\r\nPartition LBA is 0x%x",partitionlba);
+        printf("\r\n[FAT] Partition LBA is 0x%x",partitionlba);
         // read the boot record
         if(!sd_readblock(partitionlba,bpb,1)) {
-            uart_puts("\r\nERROR: Unable to read boot record");
+            uart_puts("\r\n[FAT] ERROR: Unable to read boot record");
             return 0;
         }
         
-        printf("\r\nbootjmp: 0x%x 0x%x 0x%x",bpb->bootjmp[0],bpb->bootjmp[1],bpb->bootjmp[2]);
+        printf("\r\n[FAT] bootjmp: 0x%x 0x%x 0x%x",bpb->bootjmp[0],bpb->bootjmp[1],bpb->bootjmp[2]);
         
         return 1;
     }

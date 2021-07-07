@@ -28,3 +28,5 @@ void lfb_init();
   * Show a picture
   */
 void lfb_showpicture();
+
+void lfb_clear();

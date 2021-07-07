@@ -15,7 +15,7 @@
 unsigned short int DEBUG = 1;
  
 const char* gbanner = "\r\n-------------------------\r\nVladBootin v0.1 beta     \r\nBuilt for Raspberry Pi 2 \r\n-------------------------\r\n";
-const char* usage = "\r\n----------------------------------------------\r\nhelp - prints this\r\nbanner - prints VladBootin banner\r\nserialboot - starts boot from serial routine\r\nprintf - print something (printf <string>)\r\ndebug - enable debug log\r\nsdinit - init sd card\r\nfileboot - boot from file kernel7.img\r\ntestfile - dump test file\r\nls - list file\r\nmem - print memory map\r\nrelocate - relocate the program at __end\r\ndump - dump heap to stdio\r\ntestalloc - test alloc routine\r\nfatpart - find partition LBA\r\nmmuinit - Start the MMU and interrupt\r\nhomer - show picture\r\n----------------------------------------------\r\n";
+const char* usage = "\r\n----------------------------------------------\r\nhelp - prints this\r\nbanner - prints VladBootin banner\r\nserialboot - starts boot from serial routine\r\nprintf - print something (printf <string>)\r\ndebug - enable debug log\r\nsdinit - init sd card\r\nfileboot - boot from file kernel7.img\r\ntestfile - dump test file\r\nls - list file\r\nmem - print memory map\r\nrelocate - relocate the program at __end\r\ndump - dump heap to stdio\r\ntestalloc - test alloc routine\r\nfatpart - find partition LBA\r\nmmuinit - Start the MMU and interrupt\r\nhomer - show picture\r\nmemreset - clear memory\r\nclearfb - clear framebuffer\r\n----------------------------------------------\r\n";
 
 //Typedefs
 typedef void (*entry_fn)(uint32_t r0, uint32_t r1, uint32_t atags);
@@ -217,6 +217,8 @@ void parseCommand(char* buf,unsigned int *length)
     char fatpart_f[] = "fatpart";
     char mmuinit_f[] = "mmuinit";
     char homer_f[] = "homer";
+    char memreset_f[] = "memreset";
+    char clearfb_f[] = "clearfb";
     
     if(bufCompare(command,serialboot,cmd_len))
     {
@@ -393,6 +395,27 @@ void parseCommand(char* buf,unsigned int *length)
         return;
     }
     
+    if(bufCompare(command,memreset_f,cmd_len))
+    {
+        reset_mem();
+        emptyBuffer(buf,CMD_BUFFER_LENGTH);
+        emptyBuffer(command,CMD_BUFFER_LENGTH);
+        emptyBuffer(args,CMD_BUFFER_LENGTH);
+        *length = 0;
+        return;
+    }
+    
+    if(bufCompare(command,clearfb_f,cmd_len))
+    {
+        lfb_clear();
+        emptyBuffer(buf,CMD_BUFFER_LENGTH);
+        emptyBuffer(command,CMD_BUFFER_LENGTH);
+        emptyBuffer(args,CMD_BUFFER_LENGTH);
+        *length = 0;
+        return;
+    }
+    
+    
     printf("\r\nCommand not found");
     emptyBuffer(buf,CMD_BUFFER_LENGTH);
     emptyBuffer(command,CMD_BUFFER_LENGTH);
@@ -417,7 +440,7 @@ void memoryDump()
 {
     unsigned char *start = &__end;
     unsigned char *end = 0x3F000000;
-    unsigned int size = end - &__end;
+    unsigned int size = last_block();
     uart_dump(start,size);
 }
 

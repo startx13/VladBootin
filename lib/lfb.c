@@ -109,7 +109,7 @@ void lfb_showpicture()
     ptr += (height-banner_height)/2*pitch + (width-banner_width)*2;
     for(y=0;y<banner_height;y++) {
         for(x=0;x<banner_width;x++) {
-            HEADER_PIXEL(data, pixel);
+            HEADER_PIXEL_BANNER(data, pixel);
             // the image is in RGB. So if we have an RGB framebuffer, we can copy the pixels
             // directly, but for BGR we must swap R (pixel[0]) and B (pixel[2]) channels.
             *((unsigned int*)ptr)=isrgb ? *((unsigned int *)&pixel) : (unsigned int)(pixel[0]<<16 | pixel[1]<<8 | pixel[2]);
@@ -128,12 +128,35 @@ void lfb_showhomer()
     ptr += (height-homer_height)/2*pitch + (width-homer_width)*2;
     for(y=0;y<homer_height;y++) {
         for(x=0;x<homer_width;x++) {
-            HEADER_PIXEL(data, pixel);
+            HEADER_PIXEL_HOMER(data, pixel);
             // the image is in RGB. So if we have an RGB framebuffer, we can copy the pixels
             // directly, but for BGR we must swap R (pixel[0]) and B (pixel[2]) channels.
             *((unsigned int*)ptr)=isrgb ? *((unsigned int *)&pixel) : (unsigned int)(pixel[0]<<16 | pixel[1]<<8 | pixel[2]);
             ptr+=4;
         }
         ptr+=pitch-homer_width*4;
+    }
+}
+
+void lfb_clear()
+{
+    int x,y;
+    unsigned char *ptr=lfb;
+    char *data=banner_data;
+    char pixel[4];
+
+    ptr += (height-banner_height)/2*pitch + (width-banner_width)*2;
+    for(y=0;y<banner_height;y++) {
+        for(x=0;x<banner_width;x++) {
+            pixel[0] = 0x0;
+            pixel[1] = 0x0;
+            pixel[2] = 0x0;
+            
+            // the image is in RGB. So if we have an RGB framebuffer, we can copy the pixels
+            // directly, but for BGR we must swap R (pixel[0]) and B (pixel[2]) channels.
+            *((unsigned int*)ptr)=isrgb ? *((unsigned int *)&pixel) : (unsigned int)(pixel[0]<<16 | pixel[1]<<8 | pixel[2]);
+            ptr+=4;
+        }
+        ptr+=pitch-banner_width*4;
     }
 }

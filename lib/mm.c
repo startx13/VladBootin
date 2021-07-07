@@ -21,17 +21,42 @@ extern unsigned char __data;
 extern unsigned char __end;
 
 unsigned int nextptr = &__end;
+unsigned short int first_clean = 0;
+
+//Clear memory before use
+void mem_clear(unsigned int *ptr, unsigned int size)
+{
+    for(unsigned int i = ptr; i<= ptr+size;i++)
+    {
+        *ptr = 0;
+    }
+}
+
+void reset_mem()
+{
+    printf("\r\n[MM] Reseting memory");
+    mem_clear(&__end,nextptr);
+    nextptr = &__end;
+}
+
+unsigned int last_block()
+{
+    return nextptr;
+}
 
 unsigned int alloc(unsigned int size)
 {
+    
     unsigned int ptr = nextptr;
-    printf("\r\nAllocating 0x%x bytes at 0x%x MMIO_BASE AT 0x%x",size,ptr,MMIO_BASE);
+    printf("\r\n[MM] Allocating 0x%x bytes at 0x%x MMIO_BASE AT 0x%x",size,ptr,MMIO_BASE);
     if((ptr + size) > MMIO_BASE)
     {
-        printf("\r\nNot enough space after __end");
+        printf("\r\n[MM] Not enough space after __end");
         return NULL;
     }
     nextptr = ptr+size;
+    printf("\r\n[MM] Cleaning block");
+    mem_clear(ptr,size);
     return ptr;
 }
 
@@ -49,27 +74,27 @@ void init_mmu()
 
 void fiq_interrupt_handler(void)
 {
-    printf("\r\nFIQ Interrupt");
+    printf("\r\n[MM] FIQ Interrupt");
 }
 
 void undefined_instruction_interrupt_handler(void)
 {
-    printf("\r\nUndefined Instruction Interrupt");
+    printf("\r\n[MM] Undefined Instruction Interrupt");
 }
 
 void bad_interrupt_handler(void)
 {
-    printf("\r\nBad Interrupt");
+    printf("\r\n[MM] Bad Interrupt");
 }
 
 void data_abort_interrupt_handler(void)
 {
-  printf("\r\nData abort interrupt");
+  printf("\r\n[MM] Data abort interrupt");
 }
 
 void irq_interrupt_handler_c(void)
 {
-    printf("\r\nIRQ Interrupt");
+    printf("\r\n[MM] IRQ Interrupt");
 }
 
 void interrupt_init() {

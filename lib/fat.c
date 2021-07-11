@@ -29,7 +29,6 @@
 #include "printf.h"
 // get the end of bss segment from linker
 
-extern unsigned char __end;
 unsigned int partitionlba = 0;
 
 // the BIOS Parameter Block (in Volume Boot Record)
@@ -77,42 +76,44 @@ typedef struct {
  */
 
 unsigned char *mbr;
-static  bpb_t *bpb;
-
-unsigned short int loaded = 0;
+bpb_t *bpb;
 
 int fat_getpartition(void)
 {
-    if(!loaded)
-    {
+   if(partitionlba == 0)
+   {
         mbr = alloc(512);
         bpb = alloc(sizeof(bpb_t));
-        loaded = 1;
+        
+        if(sd_readblock(0,mbr,1)) {
+            // check magic
+            if(mbr[510]!=0x55 || mbr[511]!=0xAA) {
+                uart_puts("\r\n[FAT] ERROR: Bad magic in MBR");
+                return 0;
+            }
+                // check partition type
+            if(mbr[0x1C2]!=0x0c)
+            {
+                uart_puts("\r\n[FAT] ERROR: Wrong partition type");
+                return 0;
+            }
+                // should be this, but compiler generates bad code...
+            partitionlba= (mbr[0x1C6] + (mbr[0x1c7]<<8) + (mbr[0x1c8]<<16) + (mbr[0x1c9]<<32));
+            printf("\r\n[FAT] Partition LBA is 0x%x",partitionlba);
+                // read the boot record
+            if(!sd_readblock(partitionlba,bpb,1)) {
+                uart_puts("\r\n[FAT] ERROR: Unable to read boot record");
+                return 0;
+            }
+                            
+            return 1;
+        }
+        return 0;
     }
-    if(sd_readblock(0,mbr,1)) {
-        // check magic
-        if(mbr[510]!=0x55 || mbr[511]!=0xAA) {
-            uart_puts("\r\n[FAT] ERROR: Bad magic in MBR");
-            return 0;
-        }
-            // check partition type
-        if(mbr[0x1C2]!=0x0c)
-        {
-            uart_puts("\r\n[FAT] ERROR: Wrong partition type");
-            return 0;
-        }
-            // should be this, but compiler generates bad code...
-        partitionlba= (mbr[0x1C6] + (mbr[0x1c7]<<8) + (mbr[0x1c8]<<16) + (mbr[0x1c9]<<32));
-        printf("\r\n[FAT] Partition LBA is 0x%x",partitionlba);
-            // read the boot record
-        if(!sd_readblock(partitionlba,bpb,1)) {
-            uart_puts("\r\n[FAT] ERROR: Unable to read boot record");
-            return 0;
-        }
-                        
+    else
+    {
         return 1;
     }
-    return 0;
 }
 
 /**
@@ -124,17 +125,16 @@ unsigned int fat_getcluster(char *fn)
     
     unsigned int root_sec, s;
     // find the root directory's LBA
-    root_sec=((bpb->spf16?bpb->spf16:bpb->spf32)*bpb->nf)+bpb->rsc;
+    root_sec=((bpb->spf32)*bpb->nf)+bpb->rsc;
     s = (bpb->nr0 + (bpb->nr1 << 8)) * sizeof(fatdir_t);
-    if(bpb->spf16==0) {
-        // adjust for FAT32
-        root_sec+=(bpb->rc-2)*bpb->spc;
-    }
+
+    // adjust for FAT32
+    root_sec+=(bpb->rc-2)*bpb->spc;
     // add partition LBA
     root_sec+=partitionlba;
     // load the root directory
-    fatdir_t *dir=alloc(sizeof(fatdir_t) * (s/512+2));
-    if(sd_readblock(root_sec,(unsigned char*)dir,s/512+2)) {
+    fatdir_t *dir=alloc(512 * (s/512+2));
+    if(sd_readblock(root_sec,dir,s/512+2)) {
         // iterate on each entry and check if it's the one we're looking for
         for(;dir->name[0]!=0;dir++) {
             // is it a valid entry?
@@ -156,53 +156,71 @@ unsigned int fat_getcluster(char *fn)
         return 0;
 }
 
+unsigned int lastFileDimension = 0;
+
+unsigned int getLastFileSize()
+{
+    return lastFileDimension;
+}
+
 /**
  * Read a file into memory
  */
-char *fat_readfile(unsigned int cluster)
+unsigned int fat_readfile(unsigned int cluster)
 {
-    unsigned int *fat32=alloc(bpb->rsc*512);
-    unsigned short *fat16=fat32;
+    // BIOS Parameter Block
+    // File allocation tables. We choose between FAT16 and FAT32 dynamically
+    lastFileDimension = 0;
     // Data pointers
     unsigned int data_sec, s;
     unsigned int *data, *ptr;
     // find the LBA of the first data sector
-    data_sec=((bpb->spf16?bpb->spf16:bpb->spf32)*bpb->nf)+bpb->rsc;
+    data_sec=((bpb->spf32)*bpb->nf)+bpb->rsc;
     s = (bpb->nr0 + (bpb->nr1 << 8)) * sizeof(fatdir_t);
-    if(bpb->spf16>0) {
-        // adjust for FAT16
-        data_sec+=(s+511)>>9;
-    }
+
     // add partition LBA
     data_sec+=partitionlba;
     // dump important properties
-    uart_puts("\r\n[FAT] Bytes per Sector: ");
+    uart_puts("\r\nFAT Bytes per Sector: ");
     uart_hex(bpb->bps0 + (bpb->bps1 << 8));
-    uart_puts("\r\n[FAT] Sectors per Cluster: ");
+    uart_puts("\r\nFAT Sectors per Cluster: ");
     uart_hex(bpb->spc);
-    uart_puts("\r\n[FAT] Number of FAT: ");
+    uart_puts("\r\nFAT Number of FAT: ");
     uart_hex(bpb->nf);
-    uart_puts("\r\n[FAT] Sectors per FAT: ");
+    uart_puts("\r\nFAT Sectors per FAT: ");
     uart_hex((bpb->spf16?bpb->spf16:bpb->spf32));
-    uart_puts("\r\n[FAT] Reserved Sectors Count: ");
+    uart_puts("\r\nFAT Reserved Sectors Count: ");
     uart_hex(bpb->rsc);
-    uart_puts("\r\n[FAT] First data sector: ");
+    uart_puts("\r\nFAT First data sector: ");
     uart_hex(data_sec);
     // load FAT table
-    unsigned char *table = alloc(512 * ((bpb->spf16?bpb->spf16:bpb->spf32)+bpb->rsc));
-    s=sd_readblock(partitionlba+1,table,(bpb->spf16?bpb->spf16:bpb->spf32)+bpb->rsc);
+    unsigned int *fat32;
+    fat32=alloc(((bpb->spf32)+bpb->rsc)*512);
+    s=sd_readblock(partitionlba+2,fat32,(bpb->spf32)+bpb->rsc);
     // end of FAT in memory
-    data=ptr=alloc(512 * bpb->spc);
+    printf("\r\n[FAT] Cluster Size in Memory: 0x%x", bpb->spc*512);
+
+    unsigned short int firstSector = 0;
     // iterate on cluster chain
-    while(cluster>1 && cluster<0xFFF8) {
+    do {
+        if(!firstSector)
+        {
+            data=ptr=alloc(bpb->spc*512);
+            firstSector = 1;
+        }
+        else
+        {
+            ptr=alloc(bpb->spc*512);
+        }
         // load all sectors in a cluster
-        sd_readblock((cluster-2)*bpb->spc+data_sec,ptr,bpb->spc);
+        lastFileDimension += sd_readblock((cluster-2)*bpb->spc+data_sec,ptr,bpb->spc);
         // move pointer, sector per cluster * bytes per sector
-        ptr=alloc(512 * bpb->spc);
         // get the next cluster in chain
-        cluster=bpb->spf16>0?fat16[cluster]:fat32[cluster];
-    }
-    return (char*)data;
+        printf("\r\nfat32[cluster]: 0x%x",fat32[cluster]);
+        cluster=fat32[cluster];
+    }while(cluster>1 && cluster<0x0FFFFFF8);
+    
+    return data;
 }
 
 void fat_listdirectory(void)
@@ -226,7 +244,7 @@ void fat_listdirectory(void)
     uart_hex(root_sec);
 
     // load the root directory
-    fatdir_t *dir = alloc(sizeof(fatdir_t) * (s/512+2));
+    fatdir_t *dir = alloc(512 * (s/512+2));
     if(sd_readblock(root_sec,(unsigned char*)dir,s/512+2)) {
         uart_puts("\r\nAttrib Cluster  Size     Name\r\n");
         // iterate on each entry and print out

@@ -15,7 +15,7 @@
 unsigned short int DEBUG = 1;
  
 const char* gbanner = "\r\n-------------------------\r\nVladBootin v0.1 beta     \r\nBuilt for Raspberry Pi 2 \r\nBuild Timestamp: %s\r\nGCC version: %d.%d\r\n-------------------------\r\n";
-const char* usage = "\r\n----------------------------------------------\r\nhelp - prints this\r\nbanner - prints VladBootin banner\r\nserialboot - starts boot from serial routine\r\nprintf - print something (printf <string>)\r\ndebug - enable debug log\r\nsdinit - init sd card\r\nfileboot - boot from file kernel7.img\r\ntestfile - dump test file\r\nls - list file\r\nmem - print memory map\r\nrelocate - relocate the program at __end\r\ndump - dump heap to stdio\r\ntestalloc - test alloc routine\r\nfatpart - find partition LBA\r\nmmuinit - Start the MMU and interrupt\r\nhomer - show picture\r\nmemreset - clear memory\r\nclearfb - clear framebuffer\r\ncat - print a file (cat <file>)\r\nboot - boot from file (boot <file>)\r\n----------------------------------------------\r\n";
+const char* usage = "\r\n----------------------------------------------\r\nhelp - prints this\r\nbanner - prints VladBootin banner\r\nserialboot - starts boot from serial routine\r\nprintf - print something (printf <string>)\r\ndebug - enable debug log\r\nsdinit - init sd card\r\nfileboot - boot from file kernel7.img\r\ntestfile - dump test file\r\nls - list file\r\nmem - print memory map\r\nrelocate - relocate the program at __end\r\ndump - dump heap to stdio\r\ntestalloc - test alloc routine\r\nfatpart - find partition LBA\r\nmmuinit - Start the MMU and interrupt\r\nhomer - show picture\r\nmemreset - clear memory\r\nclearfb - clear framebuffer\r\ncat - print a file (cat <file>)\r\nboot - boot from file (boot <file>)\r\nhexcat - read file in hex format\r\n----------------------------------------------\r\n";
 
 //Typedefs
 typedef void (*entry_fn)(uint32_t r0, uint32_t r1, uint32_t atags);
@@ -221,6 +221,7 @@ void parseCommand(char* buf,unsigned int *length)
     char clearfb_f[] = "clearfb";
     char cat_f[] = "cat";
     char boot_f[] = "boot";
+    char hexcat_f[] = "hexcat";
     
     if(bufCompare(command,serialboot,cmd_len))
     {
@@ -448,8 +449,8 @@ void parseCommand(char* buf,unsigned int *length)
              if(cluster)
              {
                  unsigned char *file = fat_readfile(cluster);
-                 printf("\r\nBooting.....");
-                 entry_fn fn = (entry_fn*)file;
+                 printf("\r\nBooting image at 0x%d.....",file);
+                 entry_fn fn = (entry_fn)file;
                  fn(gr0, gr1, gatags);
                 
              }
@@ -464,6 +465,30 @@ void parseCommand(char* buf,unsigned int *length)
         *length = 0;
         return;
     }
+    
+    if(bufCompare(command,hexcat_f,cmd_len))
+    {
+        if(sd_ret==SD_OK)
+        {
+            unsigned int cluster = fat_getcluster(args);
+             if(cluster)
+             {
+                unsigned char *file = fat_readfile(cluster);
+                printf("\r\n");
+                uart_dump(file,getLastFileSize());
+             }
+             else
+             {
+                 printf("\r\n[MAIN] Error Reading file");
+             }
+        }
+        emptyBuffer(buf,CMD_BUFFER_LENGTH);
+        emptyBuffer(command,CMD_BUFFER_LENGTH);
+        emptyBuffer(args,CMD_BUFFER_LENGTH);
+        *length = 0;
+        return;
+    }
+    
     printf("\r\nCommand not found");
     emptyBuffer(buf,CMD_BUFFER_LENGTH);
     emptyBuffer(command,CMD_BUFFER_LENGTH);
@@ -526,8 +551,8 @@ void bootFromFile()
         {
             unsigned char *kernel = fat_readfile(cluster);
 
-            printf("\r\nBooting kernel....");
-            entry_fn fn = (entry_fn*)kernel;
+            printf("\r\nBooting kernel ad 0x%x....",kernel);
+            entry_fn fn = (entry_fn)kernel;
             fn(gr0, gr1, gatags);
         }
     }

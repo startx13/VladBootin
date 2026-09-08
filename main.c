@@ -569,46 +569,50 @@ void testRead()
     }
 }
 
-void bootFromSerial(char *args,unsigned int args_len)
+void bootFromSerial(char *args, unsigned int args_len)
 {
+    #define ACK 0x6
+    #define SYN 0x16
 
-    #define ACK  0x6
-    #define SYN  0x16
-    
     printf("\r\nBooting from serial.....");
-    
+
     printf("\r\nWaiting for console to attach......");
-    
+
     char c;
     do
     {
         c = uart_getc();
-        
-    }while(c!=SYN);
-    
+
+    } while(c != SYN);
+
     printf("\r\nWaiting for kernel image size......");
-    
+
     unsigned int size = uart_getc();
-    size |= uart_getc() << 8;
-    size |= uart_getc() << 16;
-    size |= uart_getc() << 24;
-    
-    
-    printf("\r\nRecived Image size: 0x%x",size);
-    
-    //Q  W  E   R
-    //51 57 45  52
-    //0x52455751
-    
-    unsigned char *kernel = alloc(size);
-    
+    size |= ((unsigned int)uart_getc()) << 8;
+    size |= ((unsigned int)uart_getc()) << 16;
+    size |= ((unsigned int)uart_getc()) << 24;
+
+    printf("\r\nRecived Image size: 0x%x", size);
+
+    // Q  W  E  R
+    // 51 57 45 52
+    // 0x52455751
+
     if(size == 0x52455751 && DEBUG)
     {
         printf("\r\nRecived exit sequence");
         return;
     }
-    
-    if (kernel + size < kernel || kernel + size > 0x3F000000)
+
+    unsigned char *kernel = alloc(size);
+
+    if(kernel == NULL)
+    {
+        printf("\r\nWrong Image size");
+        return;
+    }
+
+    if(kernel + size < kernel || kernel + size > (unsigned char *)0x3F000000)
     {
         printf("\r\nWrong Image size");
         return;
@@ -617,18 +621,24 @@ void bootFromSerial(char *args,unsigned int args_len)
     {
         printf("\r\nImage Size correct");
     }
+
     printf("\r\nWaiting for the Image......");
-    
+
+    /* Preserve the beginning of the kernel image */
+    unsigned char *kernel_start = kernel;
+
     while(size-- > 0)
     {
         *kernel++ = uart_getc();
     }
 
     printf("\r\nBooting the kernel");
-    entry_fn fn = (entry_fn)kernel;
-    fn(gr0, gr1, gatags);
-    printf("\r\nSomething went wrong. Dropping shell");
 
+    entry_fn fn = (entry_fn)kernel_start;
+
+    fn(gr0, gr1, gatags);
+
+    printf("\r\nSomething went wrong. Dropping shell");
 }
 
 

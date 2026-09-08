@@ -7,6 +7,7 @@ static inline void delay(int32_t count);
 void uart_putc(unsigned char c);
 unsigned char uart_getc();
 void uart_puts(const char* str);
+void uart_hex(unsigned int d);
 
 enum
 {
@@ -49,3 +50,6 @@ enum
     MBOX_STATUS  = (MBOX_BASE + 0x18),
     MBOX_WRITE   = (MBOX_BASE + 0x20)
 };
+
+void uart_init(void);
+void uart_dump(unsigned int ptr, unsigned int size);

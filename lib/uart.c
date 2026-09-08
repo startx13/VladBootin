@@ -25,7 +25,7 @@ static inline void delay(int32_t count)
  
  
 // A Mailbox message with set clock rate of PL011 to 3MHz tag
-volatile unsigned int  __attribute__((aligned(16))) mbox[9] = {
+volatile unsigned int  __attribute__((aligned(16))) uart_mbox[9] = {
     9*4, 0, 0x38002, 12, 8, 2, 3000000, 0 ,0
 };
  
@@ -112,7 +112,7 @@ void uart_dump(unsigned int ptr,unsigned int size)
     printf("\r\nDumping memory at 0x%x size 0x%x\r\n",ptr,size-ptr);
     unsigned long a,b,d;
     unsigned char c;
-    for(a=(unsigned long*)ptr;a<size;a+=16)
+    for(a=ptr;a<size;a+=16)
     {
         uart_hex(a); uart_puts(": ");
         for(b=0;b<16;b++) {

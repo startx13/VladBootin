@@ -20,23 +20,22 @@ struct block
 extern unsigned char __data;
 extern unsigned char __end;
 
-unsigned int nextptr = &__end;
+unsigned int nextptr = (unsigned int)&__end;
 unsigned short int first_clean = 0;
 
 //Clear memory before use
 void mem_clear(unsigned int *ptr, unsigned int size)
 {
-    for(unsigned int i = ptr; i<= ptr+size;i++)
-    {
-        *ptr = 0;
+    for(unsigned int i = 0; i <= size; i++) {
+        ptr[i] = 0;
     }
 }
 
 void reset_mem()
 {
     //printf("\r\n[MM] Reseting memory");
-    mem_clear(&__end,nextptr);
-    nextptr = &__end;
+    mem_clear((unsigned int *)&__end, nextptr - (unsigned int)&__end);
+    nextptr = (unsigned int)&__end;
 }
 
 unsigned int last_block()
@@ -52,15 +51,17 @@ unsigned int alloc(unsigned int size)
     if((ptr + size) > MMIO_BASE)
     {
         printf("\r\n[MM] Not enough space after __end");
-        return NULL;
+        return 0;
     }
     nextptr = ptr+size;
     //printf("\r\n[MM] Cleaning block");
-    mem_clear(ptr,size);
+    mem_clear((unsigned int *)ptr,size);
     return ptr;
 }
 
 static unsigned short int mmu_started = 0;
+
+void interrupt_init();
 
 void init_mmu()
 {

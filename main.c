@@ -1,12 +1,21 @@
 #include <stddef.h>
+extern void halt(void);
 #include <stdint.h>
+extern void halt(void);
 #include "lib/printf.h"
+extern void halt(void);
 #include "lib/uart.h"
+extern void halt(void);
 #include "lib/sd.h"
+extern void halt(void);
 #include "lib/fat.h"
+extern void halt(void);
 #include "lib/stdlib.h"
+extern void halt(void);
 #include "lib/mm.h"
+extern void halt(void);
 #include "lib/lfb.h"
+extern void halt(void);
 
 #define CMD_BUFFER_LENGTH 256
 #define TRUE 1
@@ -425,7 +434,7 @@ void parseCommand(char* buf,unsigned int *length)
             unsigned int cluster = fat_getcluster(args);
              if(cluster)
              {
-                unsigned char *file = fat_readfile(cluster);
+                unsigned char *file = (unsigned char *)fat_readfile(cluster);
                 printf("\r\n");
                 printf(file);
              }
@@ -448,7 +457,7 @@ void parseCommand(char* buf,unsigned int *length)
             unsigned int cluster = fat_getcluster(args);
              if(cluster)
              {
-                 unsigned char *file = fat_readfile(cluster);
+                 unsigned char *file = (unsigned char *)fat_readfile(cluster);
                  printf("\r\nBooting image at 0x%d.....",file);
                  entry_fn fn = (entry_fn)file;
                  fn(gr0, gr1, gatags);
@@ -473,9 +482,9 @@ void parseCommand(char* buf,unsigned int *length)
             unsigned int cluster = fat_getcluster(args);
              if(cluster)
              {
-                unsigned char *file = fat_readfile(cluster);
+                unsigned char *file = (unsigned char *)fat_readfile(cluster);
                 printf("\r\n");
-                uart_dump(file,getLastFileSize());
+                uart_dump((unsigned int)file,getLastFileSize());
              }
              else
              {
@@ -499,7 +508,7 @@ void parseCommand(char* buf,unsigned int *length)
 void testAlloc()
 {
     printf("\r\nAllocating block");
-    unsigned int *blockA = alloc(512);
+    unsigned int *blockA = (unsigned int *)alloc(512);
 
     if(blockA !=NULL)
     {
@@ -512,9 +521,9 @@ void testAlloc()
 void memoryDump()
 {
     unsigned char *start = &__end;
-    unsigned char *end = 0x3F000000;
+    unsigned char *end = (unsigned char *)0x3F000000;
     unsigned int size = last_block();
-    uart_dump(start,size);
+    uart_dump((unsigned int)start,size);
 }
 
 void relocate()
@@ -524,7 +533,7 @@ void relocate()
     unsigned char *end = &__end;
     unsigned int size = end - start;
     
-    unsigned int *relocate_addr = alloc(size);
+    unsigned int *relocate_addr = (unsigned int *)alloc(size);
     printf("\r\nRelocation: __start: 0x%x __end: 0x%x size: 0x%x",start,end,size);
     
     for(unsigned int i=0;i<size;i++)
@@ -549,7 +558,7 @@ void bootFromFile()
         
         if(cluster)
         {
-            unsigned char *kernel = fat_readfile(cluster);
+            unsigned char *kernel = (unsigned char *)fat_readfile(cluster);
 
             printf("\r\nBooting kernel ad 0x%x....",kernel);
             entry_fn fn = (entry_fn)kernel;
@@ -563,7 +572,7 @@ void testRead()
         // initialize EMMC and detect SD card type
     if(sd_ret==SD_OK)
     {
-        unsigned char *file = fat_readfile(fat_getcluster("CMDLINE TXT"));
+        unsigned char *file = (unsigned char *)fat_readfile(fat_getcluster("CMDLINE TXT"));
         printf("\r\n");
         printf(file);
     }
@@ -604,7 +613,7 @@ void bootFromSerial(char *args, unsigned int args_len)
         return;
     }
 
-    unsigned char *kernel = alloc(size);
+    unsigned char *kernel = (unsigned char *)alloc(size);
 
     if(kernel == NULL)
     {

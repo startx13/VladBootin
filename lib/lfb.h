@@ -30,3 +30,5 @@ void lfb_init();
 void lfb_showpicture();
 
 void lfb_clear();
+
+void lfb_showhomer(void);

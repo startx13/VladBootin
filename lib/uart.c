@@ -34,6 +34,18 @@ volatile unsigned int  __attribute__((aligned(16))) uart_mbox[9] = {
  
 void uart_init()
 {
+    // 1. Forza il clock della periferica UART tramite Mailbox a 3MHz
+    // Attendi che la mailbox sia pronta per scrivere
+    while (mmio_read(MBOX_STATUS) & 0x80000000) { }
+    // Scrivi l'indirizzo del buffer (canale 8 per le proprietà tag)
+    mmio_write(MBOX_WRITE, ((uint32_t)((void*)&uart_mbox) & ~0xF) | 8);
+    
+    // Attendi la risposta
+    while (1) {
+        while (mmio_read(MBOX_STATUS) & 0x40000000) { } // Attendi dati in lettura
+        if (((mmio_read(MBOX_READ) & 0xF) == 8)) break; // Verifica sia il canale 8
+    }
+
     mmio_write(UART0_CR, 0x00000000);
 
     // Legge il registro GPFSEL1

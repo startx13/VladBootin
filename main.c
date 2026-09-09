@@ -1136,7 +1136,7 @@ void vladBootin_main(uint32_t r0, uint32_t r1, uint32_t atags)
 {
     
     //init_mmu();
-    sd_init();
+    //sd_init();
     uart_init();    
 
     lfb_init();

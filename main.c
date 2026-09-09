@@ -12,8 +12,8 @@
 #define TRUE 1
 #define FALSE 0
 
-#define KERNEL_LOAD_ADDR 0x00008000
-#define DTB_LOAD_ADDR    0x10000000
+#define KERNEL_LOAD_ADDR 0x10000000
+#define DTB_LOAD_ADDR    0x03000000
 #define MEMORY_END       0x3F000000
 #define MAX_DTB_SIZE     0x00100000
 
@@ -61,6 +61,7 @@ extern unsigned char __bss_size;
 extern unsigned char __end;
 
 //Functions
+
 void printMemoryMap()
 {
     printf("\r\nMEMORY MAP");
@@ -565,7 +566,169 @@ void relocate()
     
 }
 
+void fdt_update_memory(void *dtb_base, unsigned int memory_size)
+{
+    unsigned char *dtb = (unsigned char *)dtb_base;
 
+    /* Check FDT magic */
+    if(dtb[0] != 0xd0 || dtb[1] != 0x0d ||
+       dtb[2] != 0xfe || dtb[3] != 0xed)
+    {
+        printf("\r\n[BOOT] ERROR: Invalid FDT magic");
+        return;
+    }
+
+    unsigned int off_struct =
+        ((unsigned int)dtb[8]  << 24) |
+        ((unsigned int)dtb[9]  << 16) |
+        ((unsigned int)dtb[10] << 8) |
+        (unsigned int)dtb[11];
+
+    unsigned int off_strings =
+        ((unsigned int)dtb[12] << 24) |
+        ((unsigned int)dtb[13] << 16) |
+        ((unsigned int)dtb[14] << 8) |
+        (unsigned int)dtb[15];
+
+    unsigned int size_struct =
+        ((unsigned int)dtb[36] << 24) |
+        ((unsigned int)dtb[37] << 16) |
+        ((unsigned int)dtb[38] << 8) |
+        (unsigned int)dtb[39];
+
+    unsigned char *struct_base = dtb + off_struct;
+    unsigned char *struct_end  = struct_base + size_struct;
+    unsigned char *strings     = dtb + off_strings;
+
+    unsigned int depth = 0;
+    int in_memory_node = 0;
+
+    unsigned char *p = struct_base;
+
+    while(p + 4 <= struct_end)
+    {
+        unsigned int tag =
+            ((unsigned int)p[0] << 24) |
+            ((unsigned int)p[1] << 16) |
+            ((unsigned int)p[2] << 8) |
+            (unsigned int)p[3];
+
+        p += 4;
+
+        /* FDT_BEGIN_NODE */
+        if(tag == 1)
+        {
+            char *node_name = (char *)p;
+
+            depth++;
+
+            if(strcmp(node_name, "memory@0") == 0)
+            {
+                in_memory_node = depth;
+
+                printf("\r\n[BOOT] Found memory@0");
+            }
+
+            unsigned int len = strlen(node_name) + 1;
+            len = (len + 3) & ~3;
+
+            p += len;
+        }
+
+        /* FDT_END_NODE */
+        else if(tag == 2)
+        {
+            if(in_memory_node == (int)depth)
+                in_memory_node = 0;
+
+            if(depth > 0)
+                depth--;
+        }
+
+        /* FDT_PROP */
+        else if(tag == 3)
+        {
+            if(p + 8 > struct_end)
+                return;
+
+            unsigned int len =
+                ((unsigned int)p[0] << 24) |
+                ((unsigned int)p[1] << 16) |
+                ((unsigned int)p[2] << 8) |
+                (unsigned int)p[3];
+
+            unsigned int nameoff =
+                ((unsigned int)p[4] << 24) |
+                ((unsigned int)p[5] << 16) |
+                ((unsigned int)p[6] << 8) |
+                (unsigned int)p[7];
+
+            unsigned char *data = p + 8;
+
+            /*
+             * reg in memory@0:
+             *
+             *   <address size>
+             *
+             * Raspberry Pi 2:
+             *   address = 32 bit
+             *   size    = 32 bit
+             *
+             * So the property is exactly 8 bytes.
+             */
+            if(in_memory_node == (int)depth &&
+               nameoff < 4096 &&
+               strcmp((char *)(strings + nameoff), "reg") == 0 &&
+               len == 8)
+            {
+                /* Base address = 0 */
+                data[0] = 0x00;
+                data[1] = 0x00;
+                data[2] = 0x00;
+                data[3] = 0x00;
+
+                /* RAM size, big endian */
+                data[4] = (memory_size >> 24) & 0xff;
+                data[5] = (memory_size >> 16) & 0xff;
+                data[6] = (memory_size >> 8)  & 0xff;
+                data[7] = memory_size & 0xff;
+
+                printf("\r\n[BOOT] Updated memory: %u MB",
+                       memory_size / (1024 * 1024));
+
+                return;
+            }
+
+            unsigned int total = 8 + len;
+            total = (total + 3) & ~3;
+
+            if(p + total > struct_end)
+                return;
+
+            p += total;
+        }
+
+        /* FDT_NOP */
+        else if(tag == 4)
+        {
+            /* Nothing */
+        }
+
+        /* FDT_END */
+        else if(tag == 9)
+        {
+            break;
+        }
+
+        else
+        {
+            printf("\r\n[BOOT] ERROR: Unknown FDT tag 0x%08x", tag);
+            return;
+        }
+    }
+
+    printf("\r\n[BOOT] ERROR: memory@0/reg not found");
+}
 
 static void fdt_update_bootargs(void *dtb_base, const char *cmdline)
 {
@@ -751,6 +914,7 @@ void bootFromFile(const char *kname, const char *dtbname)
     }
 
     fdt_update_bootargs((void *)DTB_LOAD_ADDR, cmdline_buf);
+    fdt_update_memory((void *)DTB_LOAD_ADDR, 0x3c000000); // Assume 512MB RAM for now
 
     printf("\r\n[BOOT] Preparing CPU for Linux handoff...");
     prepare_boot();

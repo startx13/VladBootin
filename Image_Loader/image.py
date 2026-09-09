@@ -2,7 +2,7 @@ import serial
 import sys
 from pathlib import Path
 
-SERIAL_PORT = "/dev/pts/1"
+SERIAL_PORT = "/dev/pts/2"
 BAUDRATE = 115200
 
 KERNEL_PATH = Path("kernel.img")

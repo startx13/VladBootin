@@ -1,115 +1,198 @@
 import serial
-import time
 import sys
 from pathlib import Path
 
 SERIAL_PORT = "/dev/pts/1"
 BAUDRATE = 115200
-KERNEL_PATH = Path("../vladBootin.img")
 
-CHUNK_SIZE = 1
-CHUNK_DELAY = 0.001
+KERNEL_PATH = Path("kernel.img")
+DTB_PATH = Path("bcm2709-rpi-2-b.dtb")
+
+SYN = 0x16
+ACK = 0x06
+NAK = 0x15
+
+CHUNK_SIZE = 256
+ACK_TIMEOUT = 2.0
 
 
-def send_data(ser, data, description="data"):
+def wait_ack(ser, description="ACK"):
+    response = ser.read(1)
+
+    if not response:
+        raise RuntimeError(f"Timeout waiting for {description}")
+
+    if response[0] == ACK:
+        return
+
+    if response[0] == NAK:
+        raise RuntimeError(
+            f"VladBootin returned NAK while waiting for {description}"
+        )
+
+    raise RuntimeError(
+        f"Unexpected response while waiting for {description}: "
+        f"0x{response[0]:02x}"
+    )
+
+
+def send_size(ser, size, description):
+    size_bytes = size.to_bytes(4, byteorder="little")
+
+    print(
+        f"Sending {description} size: "
+        f"{size} bytes ({size_bytes.hex()})"
+    )
+
+    ser.write(size_bytes)
+    ser.flush()
+
+    wait_ack(ser, f"{description} size ACK")
+
+
+def send_file(ser, data, description):
     total = len(data)
     sent = 0
+
+    print(f"Starting {description} transfer...")
 
     while sent < total:
         chunk = data[sent:sent + CHUNK_SIZE]
 
-        written = ser.write(chunk)
+        ser.write(chunk)
         ser.flush()
 
-        sent += written
+        wait_ack(ser, f"{description} chunk ACK")
+
+        sent += len(chunk)
 
         percent = (sent * 100) // total
+
         print(
             f"\rSending {description}: "
             f"{sent}/{total} bytes ({percent}%)",
             end="",
-            flush=True,
+            flush=True
         )
-
-        if CHUNK_DELAY:
-            time.sleep(CHUNK_DELAY)
 
     print()
 
 
+def serial_monitor(ser):
+    print()
+    print("================================")
+    print(" Linux serial output")
+    print(" Press Ctrl+C to exit")
+    print("================================")
+    print()
+
+    ser.timeout = 0.1
+
+    try:
+        while True:
+            waiting = ser.in_waiting
+
+            if waiting:
+                data = ser.read(waiting)
+
+                sys.stdout.buffer.write(data)
+                sys.stdout.buffer.flush()
+
+    except KeyboardInterrupt:
+        print("\n\nSerial monitor terminated.")
+
+
 def main():
     print("================================")
-    print(" VladBootin Serial Image Loader")
+    print(" VladBootin Linux Serial Loader")
     print("================================")
 
     if not KERNEL_PATH.exists():
         print(f"ERROR: kernel not found: {KERNEL_PATH}")
         sys.exit(1)
 
+    if not DTB_PATH.exists():
+        print(f"ERROR: DTB not found: {DTB_PATH}")
+        sys.exit(1)
+
     kernel = KERNEL_PATH.read_bytes()
-    size = len(kernel)
+    dtb = DTB_PATH.read_bytes()
 
     print(f"Serial port : {SERIAL_PORT}")
     print(f"Baudrate    : {BAUDRATE}")
     print(f"Kernel      : {KERNEL_PATH}")
-    print(f"Kernel size : {size} bytes")
+    print(f"Kernel size : {len(kernel)} bytes")
+    print(f"DTB         : {DTB_PATH}")
+    print(f"DTB size    : {len(dtb)} bytes")
 
     try:
         with serial.Serial(
             port=SERIAL_PORT,
             baudrate=BAUDRATE,
-            timeout=1,
-            write_timeout=5,
+            timeout=ACK_TIMEOUT,
+            write_timeout=ACK_TIMEOUT,
         ) as ser:
 
-            # Give the serial device a moment to settle.
-            time.sleep(0.2)
+            # -----------------------------------------------------
+            # SYN
+            # -----------------------------------------------------
 
-            # -------------------------------------------------
-            # 1. SYN
-            # -------------------------------------------------
             print("Sending SYN...")
-            ser.write(bytes([0x16]))
+
+            ser.write(bytes([SYN]))
             ser.flush()
 
-            print("SYN sent.")
+            wait_ack(ser, "SYN ACK")
 
-            # VladBootin historically waits after SYN.
-            time.sleep(1)
+            print("SYN ACK received.")
 
-            # -------------------------------------------------
-            # 2. Kernel size
-            # -------------------------------------------------
-            size_bytes = size.to_bytes(4, byteorder="little")
+            # -----------------------------------------------------
+            # KERNEL
+            # -----------------------------------------------------
 
-            print(
-                "Sending kernel size: "
-                f"{size} bytes "
-                f"({size_bytes.hex()})"
+            send_size(
+                ser,
+                len(kernel),
+                "kernel"
             )
 
-            ser.write(size_bytes)
-            ser.flush()
-
-            time.sleep(1)
-
-            # -------------------------------------------------
-            # 3. Kernel
-            # -------------------------------------------------
-            print("Starting kernel transfer...")
-
-            send_data(
+            send_file(
                 ser,
                 kernel,
-                description="kernel",
+                "kernel"
             )
 
             print("Kernel transfer complete.")
 
-            # Give VladBootin time to receive the final bytes.
-            time.sleep(1)
+            # -----------------------------------------------------
+            # DTB
+            # -----------------------------------------------------
 
-            print("Serial connection closed.")
+            send_size(
+                ser,
+                len(dtb),
+                "DTB"
+            )
+
+            send_file(
+                ser,
+                dtb,
+                "DTB"
+            )
+
+            print("DTB transfer complete.")
+
+            print()
+            print("================================")
+            print("Kernel + DTB transferred.")
+            print("Waiting for Linux...")
+            print("================================")
+
+            # -----------------------------------------------------
+            # SERIAL MONITOR
+            # -----------------------------------------------------
+
+            serial_monitor(ser)
 
     except serial.SerialTimeoutException:
         print("\nERROR: serial write timeout.")
@@ -119,6 +202,10 @@ def main():
         print(f"\nERROR: serial port: {e}")
         sys.exit(1)
 
+    except RuntimeError as e:
+        print(f"\nERROR: {e}")
+        sys.exit(1)
+
     except KeyboardInterrupt:
         print("\nTransfer interrupted by user.")
         sys.exit(130)
@@ -126,4 +213,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

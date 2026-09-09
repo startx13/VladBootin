@@ -1,27 +1,18 @@
 #include <stddef.h>
-extern void halt(void);
 #include <stdint.h>
-extern void halt(void);
 #include "lib/printf.h"
-extern void halt(void);
 #include "lib/uart.h"
-extern void halt(void);
 #include "lib/sd.h"
-extern void halt(void);
 #include "lib/fat.h"
-extern void halt(void);
 #include "lib/stdlib.h"
-extern void halt(void);
 #include "lib/mm.h"
-extern void halt(void);
 #include "lib/lfb.h"
-extern void halt(void);
 
 #define CMD_BUFFER_LENGTH 256
 #define TRUE 1
 #define FALSE 0
 
-unsigned short int DEBUG = 1;
+unsigned short int DEBUG = 0;
  
 const char* gbanner = "\r\n-------------------------\r\nVladBootin v0.1 beta     \r\nBuilt for Raspberry Pi 2 \r\nBuild Timestamp: %s\r\nGCC version: %d.%d\r\n-------------------------\r\n";
 const char* usage = "\r\n----------------------------------------------\r\nhelp - prints this\r\nbanner - prints VladBootin banner\r\nserialboot - starts boot from serial routine\r\nprintf - print something (printf <string>)\r\ndebug - enable debug log\r\nsdinit - init sd card\r\nfileboot - boot from file kernel7.img\r\ntestfile - dump test file\r\nls - list file\r\nmem - print memory map\r\nrelocate - relocate the program at __end\r\ndump - dump heap to stdio\r\ntestalloc - test alloc routine\r\nfatpart - find partition LBA\r\nmmuinit - Start the MMU and interrupt\r\nhomer - show picture\r\nmemreset - clear memory\r\nclearfb - clear framebuffer\r\ncat - print a file (cat <file>)\r\nboot - boot from file (boot <file>)\r\nhexcat - read file in hex format\r\n----------------------------------------------\r\n";
@@ -42,6 +33,9 @@ void bootFromSerial(char *args,unsigned int args_len);
 void bootFromFile();
 void relocate();
 void memoryDump();
+extern void halt(void);
+extern void prepare_boot(void);
+extern void clean_dcache_range(unsigned int start, unsigned int end);
 
 //Global Vars
 uint32_t gr0;
@@ -580,73 +574,275 @@ void testRead()
 
 void bootFromSerial(char *args, unsigned int args_len)
 {
-    #define ACK 0x6
-    #define SYN 0x16
+    #define ACK              0x06
+    #define NAK              0x15
+    #define SYN              0x16
+    #define CHUNK_SIZE       256
+
+    #define KERNEL_LOAD_ADDR 0x00010000
+    #define DTB_LOAD_ADDR    0x10000000
+    #define MEMORY_END       0x3F000000
+    #define MAX_DTB_SIZE     0x00100000
 
     printf("\r\nBooting from serial.....");
-
     printf("\r\nWaiting for console to attach......");
 
-    char c;
+    unsigned char c;
+
+    /*
+     * ---------------------------------------------------------------------
+     * Wait for SYN
+     * ---------------------------------------------------------------------
+     */
+
     do
     {
         c = uart_getc();
+    }
+    while(c != SYN);
 
-    } while(c != SYN);
+    /*
+     * Binary protocol starts here.
+     */
+    uart_putc(ACK);
 
-    printf("\r\nWaiting for kernel image size......");
 
-    unsigned int size = uart_getc();
-    size |= ((unsigned int)uart_getc()) << 8;
-    size |= ((unsigned int)uart_getc()) << 16;
-    size |= ((unsigned int)uart_getc()) << 24;
+    /*
+     * ---------------------------------------------------------------------
+     * Receive kernel size
+     * ---------------------------------------------------------------------
+     */
 
-    printf("\r\nRecived Image size: 0x%x", size);
+    unsigned int kernel_size = 0;
 
-    // Q  W  E  R
-    // 51 57 45 52
-    // 0x52455751
+    kernel_size |= ((unsigned int)uart_getc());
+    kernel_size |= ((unsigned int)uart_getc()) << 8;
+    kernel_size |= ((unsigned int)uart_getc()) << 16;
+    kernel_size |= ((unsigned int)uart_getc()) << 24;
 
-    if(size == 0x52455751 && DEBUG)
+
+    /*
+     * Debug exit sequence: QWER
+     */
+    if(kernel_size == 0x52455751 && DEBUG)
     {
-        printf("\r\nRecived exit sequence");
+        uart_putc(ACK);
         return;
     }
 
-    unsigned char *kernel = (unsigned char *)alloc(size);
 
-    if(kernel == NULL)
+    /*
+     * Kernel must not be empty.
+     */
+    if(kernel_size == 0)
     {
-        printf("\r\nWrong Image size");
+        uart_putc(NAK);
         return;
     }
 
-    if(kernel + size < kernel || kernel + size > (unsigned char *)0x3F000000)
+
+    /*
+     * ---------------------------------------------------------------------
+     * Kernel destination
+     * ---------------------------------------------------------------------
+     */
+
+    unsigned char *kernel_start =
+        (unsigned char *)KERNEL_LOAD_ADDR;
+
+    unsigned char *kernel_end =
+        kernel_start + kernel_size;
+
+
+    /*
+     * Validate kernel range.
+     */
+    if(kernel_end < kernel_start ||
+       kernel_end > (unsigned char *)DTB_LOAD_ADDR)
     {
-        printf("\r\nWrong Image size");
+        uart_putc(NAK);
         return;
     }
-    else
+
+
+    /*
+     * Kernel size accepted.
+     */
+    uart_putc(ACK);
+
+
+    /*
+     * ---------------------------------------------------------------------
+     * Receive kernel
+     * ---------------------------------------------------------------------
+     */
+
+    unsigned char *kernel = kernel_start;
+    unsigned int remaining = kernel_size;
+
+    while(remaining > 0)
     {
-        printf("\r\nImage Size correct");
+        unsigned int chunk = remaining;
+
+        if(chunk > CHUNK_SIZE)
+            chunk = CHUNK_SIZE;
+
+        for(unsigned int i = 0; i < chunk; i++)
+        {
+            *kernel++ = uart_getc();
+        }
+
+        remaining -= chunk;
+
+        uart_putc(ACK);
     }
 
-    printf("\r\nWaiting for the Image......");
 
-    /* Preserve the beginning of the kernel image */
-    unsigned char *kernel_start = kernel;
+    /*
+     * ---------------------------------------------------------------------
+     * Receive DTB size
+     * ---------------------------------------------------------------------
+     *
+     * IMPORTANT:
+     * We are STILL in binary protocol mode.
+     * No printf() here.
+     */
 
-    while(size-- > 0)
+    unsigned int dtb_size = 0;
+
+    dtb_size |= ((unsigned int)uart_getc());
+    dtb_size |= ((unsigned int)uart_getc()) << 8;
+    dtb_size |= ((unsigned int)uart_getc()) << 16;
+    dtb_size |= ((unsigned int)uart_getc()) << 24;
+
+
+    /*
+     * Validate DTB size.
+     */
+    if(dtb_size == 0 ||
+       dtb_size > MAX_DTB_SIZE)
     {
-        *kernel++ = uart_getc();
+        uart_putc(NAK);
+        return;
     }
 
-    printf("\r\nBooting the kernel");
+
+    /*
+     * ---------------------------------------------------------------------
+     * DTB destination
+     * ---------------------------------------------------------------------
+     */
+
+    unsigned char *dtb_start =
+        (unsigned char *)DTB_LOAD_ADDR;
+
+    unsigned char *dtb_end =
+        dtb_start + dtb_size;
+
+
+    /*
+     * Validate DTB range.
+     */
+    if(dtb_end < dtb_start ||
+       dtb_end > (unsigned char *)MEMORY_END)
+    {
+        uart_putc(NAK);
+        return;
+    }
+
+
+    /*
+     * Make sure DTB does not overlap the kernel.
+     */
+    if(dtb_start < kernel_end)
+    {
+        uart_putc(NAK);
+        return;
+    }
+
+
+    /*
+     * DTB size accepted.
+     */
+    uart_putc(ACK);
+
+
+    /*
+     * ---------------------------------------------------------------------
+     * Receive DTB
+     * ---------------------------------------------------------------------
+     */
+
+    unsigned char *dtb = dtb_start;
+    remaining = dtb_size;
+
+    while(remaining > 0)
+    {
+        unsigned int chunk = remaining;
+
+        if(chunk > CHUNK_SIZE)
+            chunk = CHUNK_SIZE;
+
+        for(unsigned int i = 0; i < chunk; i++)
+        {
+            *dtb++ = uart_getc();
+        }
+
+        remaining -= chunk;
+
+        uart_putc(ACK);
+    }
+
+
+    /*
+     * ---------------------------------------------------------------------
+     * Validate DTB magic
+     * ---------------------------------------------------------------------
+     */
+
+    if(dtb_start[0] != 0xd0 ||
+       dtb_start[1] != 0x0d ||
+       dtb_start[2] != 0xfe ||
+       dtb_start[3] != 0xed)
+    {
+        return;
+    }
+
+
+    /*
+     * ---------------------------------------------------------------------
+     * Binary protocol is FINISHED.
+     * ---------------------------------------------------------------------
+     *
+     * From this point onward printf() is safe.
+     */
+
+    printf("\r\nKernel received: %u bytes.", kernel_size);
+    printf("\r\nDTB received: %u bytes.", dtb_size);
+    printf("\r\nPreparing CPU for Linux...");
+
+    /*
+    * Nothing that can touch peripherals after this point.
+    */
+    clean_dcache_range(
+    (unsigned int)kernel_start,
+    (unsigned int)kernel_end
+    );
+
+    clean_dcache_range(
+        (unsigned int)dtb_start,
+        (unsigned int)dtb_end
+    );
+
+    prepare_boot();
 
     entry_fn fn = (entry_fn)kernel_start;
 
-    fn(gr0, gr1, gatags);
+    fn(gr0,gr1,gatags);
 
+    /*
+     * The kernel should never return.
+     */
     printf("\r\nSomething went wrong. Dropping shell");
 }
 
@@ -654,13 +850,13 @@ void bootFromSerial(char *args, unsigned int args_len)
 void vladBootin_main(uint32_t r0, uint32_t r1, uint32_t atags)
 {
     //init_mmu();
-    sd_init();
+    //sd_init();
     uart_init();    
-    lfb_init();
-    lfb_init();
+    //lfb_init();
+    //lfb_init();
     
     printf(gbanner,__TIMESTAMP__,__GNUC__, __GNUC_MINOR__);
-    lfb_showpicture();
+    //lfb_showpicture();
     
     if(DEBUG==1)
         printMemoryMap();
@@ -670,10 +866,10 @@ void vladBootin_main(uint32_t r0, uint32_t r1, uint32_t atags)
     gatags = atags;
     
     //Try to boot from serial. If it fails go to shell.
-    if(!DEBUG)
-        bootFromSerial(NULL,0);
     
-    handleMenu();
+    bootFromSerial(NULL,0);
+    
+    //handleMenu();
 }
 
 void stop_core()

@@ -9,6 +9,7 @@ all: startfile $(OBJECTS) link
 
 
 startfile:
+	mkdir -p build
 	arm-none-eabi-gcc $(MFLAGS) -c start.S -o build/start.o
 	arm-none-eabi-gcc $(MFLAGS) -c main.c -o build/main.o -O2 
 
@@ -20,8 +21,8 @@ link:
 	arm-none-eabi-objcopy build/vladBootin.elf -O binary vladBootin.img
 
 clean:
-	rm build/*
+	rm -rf build
 	rm vladBootin.img
 
 run: all
-	qemu-system-arm -machine raspi2b -kernel build/vladBootin.elf -serial pty -display gtk -gdb tcp::9000 
+	qemu-system-arm -M raspi2b -cpu cortex-a7 -m 1024M -kernel build/vladBootin.elf -dtb Image_Loader/bcm2709-rpi-2-b.dtb -serial pty -display gtk -gdb tcp::9000 

@@ -379,134 +379,26 @@ clean_dcache_range:
     bx lr
 
 prepare_boot:
-
-    /*
-     * Preserve r0/r1/r2 (Linux boot args) across this whole function -
-     * we use r0-r3 below for the SMP stub copy.
-     */
-    push {r0, r1, r2, lr}
-
-
-    /*
-     * Enter SVC32 and disable IRQ/FIQ.
-     */
     mrs r3, cpsr
 
     bic r3, r3, #0x1f
-    orr r3, r3, #SVC32md
-    orr r3, r3, #0xc0
+    orr r3, r3, #0x13       @ SVC32
+    orr r3, r3, #0xc0       @ IRQ + FIQ disabled
 
     msr cpsr_c, r3
 
-
-    /*
-     * Read SCTLR.
-     */
     mrc p15, 0, r3, c1, c0, 0
 
+    bic r3, r3, #0x01       @ MMU off
+    bic r3, r3, #0x04       @ D-cache off
+    bic r3, r3, #0x1000     @ I-cache off
+    bic r3, r3, #0x800      @ BP off
 
-    /*
-     * Disable MMU.
-     */
-    bic r3, r3, #0x01
-
-    /*
-     * Disable D-cache.
-     */
-    bic r3, r3, #0x04
-
-    /*
-     * Disable I-cache (bit 12).
-     */
-    bic r3, r3, #0x1000
-
-    /*
-     * Disable branch predictor (bit 11).
-     */
-    bic r3, r3, #0x800
-
-
-    /*
-     * Write SCTLR.
-     */
     mcr p15, 0, r3, c1, c0, 0
 
-
-    /*
-     * Synchronize control register change.
-     */
-    isb
     dsb sy
     isb
 
-
-    /*
-     * Invalidate entire I-cache.
-     */
-    mov r3, #0
-    mcr p15, 0, r3, c7, c5, 0      @ ICIALLU - invalidate I-cache
-
-    /*
-     * Invalidate branch predictor array.
-     */
-    mcr p15, 0, r3, c7, c5, 6      @ BPIALL
-
-    dsb sy
-    isb
-
-
-    /*
-     * ---------------------------------------------------------------------
-     * Copy the SMP wakeup stub to SMPBOOT_ADDR (0x300).
-     * ---------------------------------------------------------------------
-     *
-     * Secondary cores are already spinning on smp_wakeup_stub
-     * (linked at 0x03000000+something), waiting on their mailbox3.
-     * We copy that same stub down to the fixed low address 0x300,
-     * matching what Linux's "brcm,bcm2836-smp" enable-method and
-     * cpu-release mechanism expect, and re-point the cores there
-     * via an event (they're in wfe).
-     *
-     * Simpler alternative actually used here: since our secondary
-     * cores are ALREADY running smp_wakeup_stub (linked wherever
-     * the linker put it, above 0x03000000), and that code only
-     * touches the mailbox registers (position-independent, no
-     * absolute self-references), we don't strictly need to
-     * relocate it to 0x300 - the cores are already parked in the
-     * right polling loop. We only need to make sure they're
-     * actually spinning on 'wfe' and not stuck in the old halt.
-     *
-     * This copy is kept for compatibility with any code path that
-     * still expects the stub at the fixed SMPBOOT_ADDR.
-     */
-
-    ldr r0, =smp_wakeup_stub
-    ldr r1, =SMPBOOT_ADDR
-    ldr r2, =smp_wakeup_stub_end
-    sub r2, r2, r0                  @ size in bytes
-
-2:
-    cmp r2, #0
-    beq 3f
-    ldr r3, [r0], #4
-    str r3, [r1], #4
-    sub r2, r2, #4
-    b 2b
-
-3:
-    dsb sy
-    isb
-
-
-    /*
-     * Wake up secondary cores from their wfe, in case they need
-     * to notice anything changed (mailbox stub copy above).
-     */
-    dsb sy
-    sev
-
-
-    pop {r0, r1, r2, lr}
     bx lr
 
 /* ------------------------------------------------------------------------- */

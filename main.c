@@ -579,7 +579,7 @@ void bootFromSerial(char *args, unsigned int args_len)
     #define SYN              0x16
     #define CHUNK_SIZE       256
 
-    #define KERNEL_LOAD_ADDR 0x00010000
+    #define KERNEL_LOAD_ADDR 0x00008000
     #define DTB_LOAD_ADDR    0x10000000
     #define MEMORY_END       0x3F000000
     #define MAX_DTB_SIZE     0x00100000
@@ -824,7 +824,7 @@ void bootFromSerial(char *args, unsigned int args_len)
     /*
     * Nothing that can touch peripherals after this point.
     */
-    clean_dcache_range(
+    /*clean_dcache_range(
     (unsigned int)kernel_start,
     (unsigned int)kernel_end
     );
@@ -833,12 +833,12 @@ void bootFromSerial(char *args, unsigned int args_len)
         (unsigned int)dtb_start,
         (unsigned int)dtb_end
     );
-
+    */
     prepare_boot();
 
     entry_fn fn = (entry_fn)kernel_start;
 
-    fn(gr0,gr1,gatags);
+    fn(0,0xFFFFFFFF,DTB_LOAD_ADDR);
 
     /*
      * The kernel should never return.
@@ -850,13 +850,13 @@ void bootFromSerial(char *args, unsigned int args_len)
 void vladBootin_main(uint32_t r0, uint32_t r1, uint32_t atags)
 {
     //init_mmu();
-    //sd_init();
+    sd_init();
     uart_init();    
-    //lfb_init();
-    //lfb_init();
+    lfb_init();
+    lfb_init();
     
     printf(gbanner,__TIMESTAMP__,__GNUC__, __GNUC_MINOR__);
-    //lfb_showpicture();
+    lfb_showpicture();
     
     if(DEBUG==1)
         printMemoryMap();

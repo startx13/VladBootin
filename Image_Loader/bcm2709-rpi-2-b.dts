@@ -46,7 +46,7 @@
 
 	chosen {
 		stdout-path = "serial0:115200n8";
-		bootargs = "coherent_pool=1M snd_bcm2835.enable_headphones=0 cgroup_disable=memory";
+		bootargs = "console=ttyAMA0,115200 boardrev=0xa01041 coherent_pool=1M snd_bcm2835.enable_headphones=0 cgroup_disable=memory";
 		phandle = <0x32>;
 	};
 
@@ -62,6 +62,7 @@
 			reusable;
 			linux,cma-default;
 			phandle = <0x38>;
+			status = "disabled";
 		};
 	};
 
@@ -1297,7 +1298,7 @@
 
 	memory@0 {
 		device_type = "memory";
-		reg = <0x00 0x00>;
+		reg = <0x00 0x3c000000>;
 	};
 
 	leds {

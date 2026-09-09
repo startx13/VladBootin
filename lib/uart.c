@@ -3,6 +3,9 @@
 #include "uart.h"
 #include "printf.h"
 
+#ifndef GPFSEL1
+#define GPFSEL1 0x3F200004 // Indirizzo fisico GPIO Function Select 1 su RPi 2 (BCM2836)
+#endif
  
 // Memory-Mapped I/O output
 static inline void mmio_write(uint32_t reg, uint32_t data)
@@ -31,47 +34,37 @@ volatile unsigned int  __attribute__((aligned(16))) uart_mbox[9] = {
  
 void uart_init()
 {
-    // Disable UART0.
     mmio_write(UART0_CR, 0x00000000);
-    // Setup the GPIO pin 14 && 15.
- 
-    // Disable pull up/down for all GPIO pins & delay for 150 cycles.
+
+    // Legge il registro GPFSEL1
+    uint32_t selector = mmio_read(GPFSEL1);
+    selector &= ~((7 << 12) | (7 << 15)); // Reset bit per GPIO 14 e 15
+    selector |= (4 << 12) | (4 << 15);   // Imposta ALT0 (100b) per UART0
+    mmio_write(GPFSEL1, selector);
+
+    // Gestione Pull-up/down
     mmio_write(GPPUD, 0x00000000);
     delay(150);
- 
-    // Disable pull up/down for pin 14,15 & delay for 150 cycles.
     mmio_write(GPPUDCLK0, (1 << 14) | (1 << 15));
     delay(150);
- 
-    // Write 0 to GPPUDCLK0 to make it take effect.
     mmio_write(GPPUDCLK0, 0x00000000);
- 
-    // Clear pending interrupts.
+
+    // Pulisci interrupt pendenti ed errori
     mmio_write(UART0_ICR, 0x7FF);
- 
-    // Set integer & fractional part of baud rate.
-    // Divider = UART_CLOCK/(16 * Baud)
-    //
-    // Fraction part register = (Fractional part * 64) + 0.5
-    // Baud = 115200.
- 
- 
-    // Divider = 3000000 / (16 * 115200) = 1.6276 = ~1.
-    // Divider = 48000000 / (16 * 115200) = 26,041
-    //                      1843200
-    mmio_write(UART0_IBRD, 26);
-    // Fractional part register = (.6276 * 64) + 0.5 = 40.666 = ~40.
-    // FPR = (0.041 * 64) + 0.5 = 3
-    mmio_write(UART0_FBRD, 3);
- 
-    // Enable FIFO & 8 bit data transmission (1 stop bit, no parity).
+    mmio_write(UART0_RSRECR, 0x0);
+
+    // Configurazione Baud Rate per Clock UART a 3MHz (RPi 2 Default)
+    mmio_write(UART0_IBRD, 1);
+    mmio_write(UART0_FBRD, 40);
+
+    // 8N1 e abilita FIFO
     mmio_write(UART0_LCRH, (1 << 4) | (1 << 5) | (1 << 6));
- 
-    // Mask all interrupts.
+
+    // Maschera interrupt
     mmio_write(UART0_IMSC, (1 << 1) | (1 << 4) | (1 << 5) | (1 << 6) |
                            (1 << 7) | (1 << 8) | (1 << 9) | (1 << 10));
- 
-    // Enable UART0, receive & transfer part of UART.
+
+    // Abilita UART, TX e RX
     mmio_write(UART0_CR, (1 << 0) | (1 << 8) | (1 << 9));
 }
  
@@ -84,9 +77,13 @@ void uart_putc(unsigned char c)
  
 unsigned char uart_getc()
 {
-    // Wait for UART to have received something.
+    // Attendi che la RX FIFO contenga dati
     while ( mmio_read(UART0_FR) & (1 << 4) ) { }
-    return mmio_read(UART0_DR);
+    
+    // Pulisci errori di linea accumulati
+    mmio_write(UART0_RSRECR, 0);
+    
+    return (unsigned char)(mmio_read(UART0_DR) & 0xFF);
 }
  
 void uart_puts(const char* str)

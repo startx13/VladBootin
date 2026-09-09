@@ -43,5 +43,20 @@ SECTIONS
 
     __bss_end = .;
     __bss_size = __bss_end - __bss_start;
+
+    . = ALIGN(4096);
+    /* Stacks (growing downwards) */
+    . = . + 0x10000; /* 64 KB SVC stack */
+    __svc_stack = .;
+    . = . + 0x4000;  /* 16 KB IRQ stack */
+    __irq_stack = .;
+    . = . + 0x4000;  /* 16 KB FIQ stack */
+    __fiq_stack = .;
+    . = . + 0x4000;  /* 16 KB ABT stack */
+    __abt_stack = .;
+    . = . + 0x4000;  /* 16 KB UND stack */
+    __und_stack = .;
+
+    . = ALIGN(4096);
     __end = .;
 }

@@ -24,17 +24,17 @@ unsigned int nextptr = (unsigned int)&__end;
 unsigned short int first_clean = 0;
 
 //Clear memory before use
-void mem_clear(unsigned int *ptr, unsigned int size)
+void mem_clear(void *ptr, unsigned int size)
 {
-    for(unsigned int i = 0; i <= size; i++) {
-        ptr[i] = 0;
+    unsigned char *p = (unsigned char *)ptr;
+    for(unsigned int i = 0; i < size; i++) {
+        p[i] = 0;
     }
 }
 
 void reset_mem()
 {
-    //printf("\r\n[MM] Reseting memory");
-    mem_clear((unsigned int *)&__end, nextptr - (unsigned int)&__end);
+    mem_clear((void *)&__end, nextptr - (unsigned int)&__end);
     nextptr = (unsigned int)&__end;
 }
 
@@ -45,17 +45,19 @@ unsigned int last_block()
 
 unsigned int alloc(unsigned int size)
 {
-    
-    unsigned int ptr = nextptr;
-    //printf("\r\n[MM] Allocating 0x%x bytes at 0x%x MMIO_BASE AT 0x%x",size,ptr,MMIO_BASE);
+    // Align size to 16 bytes
+    size = (size + 15) & ~15;
+
+    // Ensure base pointer is aligned to 16 bytes
+    unsigned int ptr = (nextptr + 15) & ~15;
+
     if((ptr + size) > MMIO_BASE)
     {
         printf("\r\n[MM] Not enough space after __end");
         return 0;
     }
-    nextptr = ptr+size;
-    //printf("\r\n[MM] Cleaning block");
-    mem_clear((unsigned int *)ptr,size);
+    nextptr = ptr + size;
+    mem_clear((void *)ptr, size);
     return ptr;
 }
 
@@ -90,7 +92,14 @@ void bad_interrupt_handler(void)
 
 void data_abort_interrupt_handler(void)
 {
-  printf("\r\n[MM] Data abort interrupt");
+    unsigned int dfsr, dfar, fault_pc;
+    __asm__ volatile("mrc p15, 0, %0, c5, c0, 0" : "=r"(dfsr));
+    __asm__ volatile("mrc p15, 0, %0, c6, c0, 0" : "=r"(dfar));
+    __asm__ volatile("sub %0, lr, #8" : "=r"(fault_pc));
+    printf("\r\n[MM] Data abort interrupt at PC: 0x%x, DFAR: 0x%x, DFSR: 0x%x\r\n", fault_pc, dfar, dfsr);
+    while(1) {
+        __asm__ volatile("wfe");
+    }
 }
 
 void irq_interrupt_handler_c(void)
@@ -100,6 +109,6 @@ void irq_interrupt_handler_c(void)
 
 void interrupt_init() {
   // enabling IRQ interrupts
-  enable_irq();
-  enable_fiq();
+  //enable_irq();
+  //enable_fiq();
 }

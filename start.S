@@ -13,25 +13,28 @@
 .globl loop
 .globl prepare_boot
 .globl linux_boot
+.globl clean_dcache_range
 
 
 /*
- * ARM Linux boot entry requirements:
+ * =========================================================================
+ * ARM Linux ARM32 boot requirements
+ * =========================================================================
  *
  *   r0 = 0
  *   r1 = machine type / ~0 for DT-only platforms
  *   r2 = physical address of ATAGS or DTB
  *
- * Linux expects:
+ * CPU state at kernel entry:
  *
- *   - SVC32 mode
- *   - IRQ disabled
- *   - FIQ disabled
- *   - MMU disabled
- *   - D-cache disabled
- *   - I-cache may be enabled or disabled
+ *   SVC32
+ *   IRQ disabled
+ *   FIQ disabled
+ *   MMU disabled
+ *   D-cache disabled
+ *   I-cache may be enabled or disabled
  *
- * _start is also the exception vector table.
+ * The kernel must be entered directly in ARM state.
  */
 
 
@@ -62,102 +65,126 @@
 /* ------------------------------------------------------------------------- */
 
 /*
- * Secondary cores (1-3) spin here waiting to be released by Linux.
+ * Secondary cores (1-3) wait here for Linux to provide their entrypoint.
  *
- * Linux's "brcm,bcm2836-smp" enable-method wakes a secondary core
- * by writing its entry point address into that core's mailbox 3
- * (LOCAL_MAILBOX3_SET0, one register per core, stride 0x10),
- * at the BCM2836 local interrupt controller base 0x40000000.
- *
- * Without this stub running on the secondary cores, Linux's
- * smp_init() waits forever for cores that are simply parked in
- * halt/wfe and never polling their mailbox - this is what was
- * hanging the boot.
- *
- * This mirrors what QEMU's write_smpboot() / the real RPi2
- * firmware does before handing control to Linux.
+ * Linux's BCM2836 SMP enable method uses mailbox 3.
  */
 
 .equ SMPBOOT_ADDR,  0x300
-.equ MBOX3_BASE,    0x400000CC   @ LOCAL_MAILBOX3_CLR0/SET0, core 0
+.equ MBOX3_BASE,    0x400000CC
+
 
 smp_wakeup_stub:
 
-    mrc p15, 0, r0, c0, c0, 5      @ MPIDR
-    and r0, r0, #3                 @ core id (0-3)
+    /*
+     * Read MPIDR.
+     */
+    mrc     p15, 0, r0, c0, c0, 5
+    and     r0, r0, #3
 
-    ldr r5, =MBOX3_BASE
+    /*
+     * r5 = mailbox base.
+     */
+    ldr     r5, =MBOX3_BASE
+
 
 1:
+    /*
+     * Wait for Linux to write the secondary entry address.
+     */
     wfe
-    ldr r3, [r5, r0, lsl #4]       @ read this core's mailbox3
-    cmp r3, #0
-    beq 1b                         @ spin while zero
 
-    str r3, [r5, r0, lsl #4]       @ clear mailbox3
-    dsb sy
-    bx r3                          @ jump to the address Linux gave us
+    ldr     r3, [r5, r0, lsl #4]
+
+    cmp     r3, #0
+    beq     1b
+
+    /*
+     * Clear mailbox.
+     */
+    str     r3, [r5, r0, lsl #4]
+
+    dsb     sy
+    isb
+
+    /*
+     * Jump directly to Linux's secondary entrypoint.
+     */
+    bx      r3
+
 
 smp_wakeup_stub_end:
 
 
 /* ------------------------------------------------------------------------- */
-/* Exception vector table                                                    */
+/* ARM exception vector table                                                */
 /* ------------------------------------------------------------------------- */
+
+/*
+ * IMPORTANT:
+ *
+ * _start MUST begin with the ARM exception vectors.
+ *
+ * Offsets:
+ *
+ *   0x00 Reset
+ *   0x04 Undefined Instruction
+ *   0x08 SVC
+ *   0x0C Prefetch Abort
+ *   0x10 Data Abort
+ *   0x14 Reserved
+ *   0x18 IRQ
+ *   0x1C FIQ
+ *
+ * The 32-byte vector area together with the following 32-byte literal
+ * table is copied to physical address 0x00000000 by _reset.
+ *
+ * We use "ldr pc, label" rather than "b label", because the vector table
+ * is relocated from 0x03000000 to 0x00000000. The literal contains the
+ * absolute target address and therefore remains valid after relocation.
+ */
+
+.align 2
 
 _start:
 
-    /*
-     * Check CPU ID.
-     *
-     * CPU0 runs the bootloader.
-     * CPU1-3 park in the SMP wakeup stub, waiting for Linux.
-     */
-    mrc p15, 0, r5, c0, c0, 5
-    and r5, r5, #3
-    cmp r5, #0
-    bne smp_wakeup_stub
+    ldr     pc, _reset_handler_h
+    ldr     pc, _undefined_instruction_handler_h
+    ldr     pc, _software_interrupt_handler_h
+    ldr     pc, _prefetch_abort_handler_h
+    ldr     pc, _data_abort_handler_h
+    ldr     pc, _unused_handler_h
+    ldr     pc, _interrupt_handler_h
+    ldr     pc, _fast_interrupt_handler_h
 
 
-    /*
-     * ARM exception vectors.
-     *
-     * The vector table is copied to address 0 below.
-     */
-
-    ldr pc, _reset_handler_h
-    ldr pc, _undefined_instruction_handler_h
-    ldr pc, _software_interrupt_handler_h
-    ldr pc, _prefetch_abort_handler_h
-    ldr pc, _data_abort_handler_h
-    ldr pc, _unused_handler_h
-    ldr pc, _interrupt_handler_h
-    ldr pc, _fast_interrupt_handler_h
-
+/* ------------------------------------------------------------------------- */
+/* Vector literal table                                                      */
+/* ------------------------------------------------------------------------- */
 
 _reset_handler_h:
-    .word _reset
+    .word   _reset
 
 _undefined_instruction_handler_h:
-    .word undefined_instruction_interrupt_handler
+    .word   undefined_instruction_interrupt_handler
 
 _software_interrupt_handler_h:
-    .word bad_interrupt_handler
+    .word   bad_interrupt_handler
 
 _prefetch_abort_handler_h:
-    .word bad_interrupt_handler
+    .word   bad_interrupt_handler
 
 _data_abort_handler_h:
-    .word data_abort_interrupt_handler
+    .word   data_abort_interrupt_handler
 
 _unused_handler_h:
-    .word _reset
+    .word   _reset
 
 _interrupt_handler_h:
-    .word irq_interrupt_handler
+    .word   irq_interrupt_handler
 
 _fast_interrupt_handler_h:
-    .word fiq_interrupt_handler
+    .word   fiq_interrupt_handler
 
 
 /* ------------------------------------------------------------------------- */
@@ -167,141 +194,184 @@ _fast_interrupt_handler_h:
 irq_interrupt_handler:
 
     /*
-     * IRQ exception LR points two instructions past the interrupted
-     * instruction. Rewind it before returning.
+     * IRQ exception LR points beyond the interrupted instruction.
      */
-    sub lr, #4
+    sub     lr, lr, #4
 
     /*
      * Save interrupted context.
      */
-    stmfd sp!, {r0-r3, r12, lr}
+    stmfd   sp!, {r0-r3, r12, lr}
 
     /*
-     * Disable IRQ while handling the interrupt.
+     * Disable IRQ while handling it.
      */
-    bl disable_irq
+    bl      disable_irq
 
     /*
      * C interrupt handler.
      */
-    bl irq_interrupt_handler_c
+    bl      irq_interrupt_handler_c
 
     /*
      * Re-enable IRQ.
      */
-    bl enable_irq
+    bl      enable_irq
 
     /*
      * Restore interrupted context and return.
      */
-    ldmfd sp!, {r0-r3, r12, pc}
+    ldmfd   sp!, {r0-r3, r12, pc}
 
 
 /* ------------------------------------------------------------------------- */
-/* Boot initialization                                                       */
+/* Boot initialization / reset entry                                         */
 /* ------------------------------------------------------------------------- */
 
 _reset:
 
     /*
-     * Preserve incoming boot arguments.
+     * ---------------------------------------------------------------------
+     * Determine CPU ID.
+     * ---------------------------------------------------------------------
      *
-     * These are restored immediately before entering C.
+     * CPU0:
+     *     starts VladBootin normally.
+     *
+     * CPU1-3:
+     *     enter the Linux SMP wakeup stub.
      */
-    mov r10, r0
-    mov r11, r1
-    mov r12, r2
+
+    mrc     p15, 0, r5, c0, c0, 5
+    and     r5, r5, #3
+
+    cmp     r5, #0
+    bne     smp_wakeup_stub
+
+
+    /*
+     * ---------------------------------------------------------------------
+     * Preserve incoming boot arguments.
+     * ---------------------------------------------------------------------
+     */
+
+    mov     r10, r0
+    mov     r11, r1
+    mov     r12, r2
 
 
     /*
      * ---------------------------------------------------------------------
      * Copy exception vectors to physical address 0.
      * ---------------------------------------------------------------------
+     *
+     * _start.._start+0x3f =
+     *
+     *   0x00..0x1f   vector instructions
+     *   0x20..0x3f   literal targets
+     *
+     * Total: 64 bytes.
      */
 
-    ldr r0, =_start
-    mov r1, #0x00
+    ldr     r0, =_start
+    mov     r1, #0x00000000
 
-    ldmia r0!, {r2, r3, r4, r5, r6, r7, r8, r9}
-    stmia r1!, {r2, r3, r4, r5, r6, r7, r8, r9}
+    ldmia   r0!, {r2-r9}
+    stmia   r1!, {r2-r9}
 
-    ldmia r0!, {r2, r3, r4, r5, r6, r7, r8, r9}
-    stmia r1!, {r2, r3, r4, r5, r6, r7, r8, r9}
+    ldmia   r0!, {r2-r9}
+    stmia   r1!, {r2-r9}
+
+    ldmia   r0!, {r2-r9}
+    stmia   r1!, {r2-r9}
+
+    ldmia   r0!, {r2-r9}
+    stmia   r1!, {r2-r9}
+
+    dsb     sy
+    isb
 
 
     /*
      * ---------------------------------------------------------------------
-     * CPU mode / stack initialization
+     * SVC32 stack
+     * ---------------------------------------------------------------------
+     */
+
+    ldr     r0, =SVC32md
+    orr     r0, r0, #0xC0
+    msr     cpsr_c, r0
+    isb
+
+    ldr     sp, =SVC_Stack
+
+
+    /*
+     * ---------------------------------------------------------------------
+     * IRQ stack
+     * ---------------------------------------------------------------------
+     */
+
+    ldr     r0, =IRQ32md
+    orr     r0, r0, #0xC0
+    msr     cpsr_c, r0
+    isb
+
+    ldr     sp, =IRQ_Stack
+
+
+    /*
+     * ---------------------------------------------------------------------
+     * FIQ stack
      * ---------------------------------------------------------------------
      *
-     * VladBootin remains in privileged SVC32 mode.
-     *
-     * IRQ and FIQ are disabled during boot.
+     * Reuse IRQ stack, as in the original implementation.
      */
+
+    ldr     r0, =FIQ32md
+    orr     r0, r0, #0xC0
+    msr     cpsr_c, r0
+    isb
+
+    ldr     sp, =IRQ_Stack
 
 
     /*
-     * SVC stack.
-     */
-    ldr r0, =SVC32md
-    orr r0, r0, #0xC0
-    msr cpsr_c, r0
-    ldr sp, =SVC_Stack
-
-
-    /*
-     * IRQ stack.
-     */
-    ldr r0, =IRQ32md
-    orr r0, r0, #0xC0
-    msr cpsr_c, r0
-    ldr sp, =IRQ_Stack
-
-
-    /*
-     * FIQ stack.
-     *
-     * No dedicated FIQ stack existed in the original bootloader,
-     * therefore use the existing IRQ stack for now.
-     */
-    ldr r0, =FIQ32md
-    orr r0, r0, #0xC0
-    msr cpsr_c, r0
-    ldr sp, =IRQ_Stack
-
-
-    /*
+     * ---------------------------------------------------------------------
      * Return to SVC32.
+     * ---------------------------------------------------------------------
      */
-    ldr r0, =SVC32md
-    orr r0, r0, #0xC0
-    msr cpsr_c, r0
-    ldr sp, =SVC_Stack
+
+    ldr     r0, =SVC32md
+    orr     r0, r0, #0xC0
+    msr     cpsr_c, r0
+    isb
+
+    ldr     sp, =SVC_Stack
 
 
     /*
      * ---------------------------------------------------------------------
-     * Clear BSS
+     * Clear BSS.
      * ---------------------------------------------------------------------
      */
 
-    ldr r4, =__bss_start
-    ldr r9, =__bss_end
+    ldr     r4, =__bss_start
+    ldr     r9, =__bss_end
 
-    mov r5, #0
-    mov r6, #0
-    mov r7, #0
-    mov r8, #0
+    mov     r5, #0
+    mov     r6, #0
+    mov     r7, #0
+    mov     r8, #0
 
-    b 2f
+    b       2f
 
 1:
-    stmia r4!, {r5-r8}
+    stmia   r4!, {r5-r8}
 
 2:
-    cmp r4, r9
-    blo 1b
+    cmp     r4, r9
+    blo     1b
 
 
     /*
@@ -310,25 +380,25 @@ _reset:
      * ---------------------------------------------------------------------
      */
 
-    mov r0, r10
-    mov r1, r11
-    mov r2, r12
+    mov     r0, r10
+    mov     r1, r11
+    mov     r2, r12
 
 
     /*
      * ---------------------------------------------------------------------
-     * Enter the C side of VladBootin.
+     * Enter VladBootin C.
      * ---------------------------------------------------------------------
-     *
-     * CPU is now:
-     *
-     *   SVC32
-     *   IRQ disabled
-     *   FIQ disabled
      */
 
-    ldr r3, =vladBootin_main
-    blx r3
+    ldr     r3, =vladBootin_main
+    blx     r3
+
+
+    /*
+     * vladBootin_main() should never return.
+     */
+    b       loop
 
 
 /* ------------------------------------------------------------------------- */
@@ -338,9 +408,7 @@ _reset:
 /*
  * prepare_boot()
  *
- * Prepare the CPU for Linux ARM32 kernel handoff.
- *
- * On return:
+ * Leaves CPU in the state required by Linux ARM32 boot protocol:
  *
  *   SVC32
  *   IRQ disabled
@@ -348,58 +416,240 @@ _reset:
  *   MMU disabled
  *   D-cache disabled
  *
- * r0, r1 and r2 are preserved.
+ * I-cache is also disabled here.
+ * Branch prediction is also disabled.
  *
- * The caller is responsible for setting:
+ * r0/r1/r2 are preserved.
+ *
+ * IMPORTANT:
+ *     VBAR is NOT changed here.
+ *     Physical address 0 is NOT modified here.
+ */
+
+prepare_boot:
+
+    /*
+     * ---------------------------------------------------------------------
+     * Enter SVC32 and disable IRQ/FIQ.
+     * ---------------------------------------------------------------------
+     */
+
+    mrs     r3, cpsr
+
+    bic     r3, r3, #0x1f
+    orr     r3, r3, #0x13
+    orr     r3, r3, #0xc0
+
+    msr     cpsr_c, r3
+    isb
+
+
+    /*
+     * ---------------------------------------------------------------------
+     * Read SCTLR.
+     * ---------------------------------------------------------------------
+     */
+
+    mrc     p15, 0, r3, c1, c0, 0
+
+
+    /*
+     * Disable:
+     *
+     * M = MMU
+     * C = D-cache
+     * Z = branch prediction
+     * I = I-cache
+     */
+
+    bic     r3, r3, #(1 << 0)
+    bic     r3, r3, #(1 << 2)
+    bic     r3, r3, #(1 << 11)
+    bic     r3, r3, #(1 << 12)
+
+    mcr     p15, 0, r3, c1, c0, 0
+
+    dsb     sy
+    isb
+
+
+    /*
+     * ---------------------------------------------------------------------
+     * Invalidate unified TLB.
+     * ---------------------------------------------------------------------
+     */
+
+    mov     r3, #0
+
+    mcr     p15, 0, r3, c8, c7, 0
+
+    dsb     sy
+    isb
+
+
+    /*
+     * ---------------------------------------------------------------------
+     * Invalidate instruction cache.
+     * ---------------------------------------------------------------------
+     */
+
+    mcr     p15, 0, r3, c7, c5, 0
+
+
+    /*
+     * ---------------------------------------------------------------------
+     * Invalidate branch predictor.
+     * ---------------------------------------------------------------------
+     */
+
+    mcr     p15, 0, r3, c7, c5, 6
+
+    dsb     sy
+    isb
+
+
+    /*
+     * Return to bootFromSerial().
+     */
+    bx      lr
+
+
+/* ------------------------------------------------------------------------- */
+/* D-cache clean range                                                       */
+/* ------------------------------------------------------------------------- */
+
+/*
+ * clean_dcache_range()
+ *
+ *   r0 = start address
+ *   r1 = end address (exclusive)
+ *
+ * Cleans all D-cache lines covering [r0, r1).
+ *
+ * This is kept as a general-purpose helper.
+ */
+
+clean_dcache_range:
+
+    /*
+     * Read Cache Type Register.
+     */
+    mrc     p15, 0, r2, c0, c0, 1
+
+    /*
+     * CTR.DminLine = bits [19:16].
+     */
+    ubfx    r2, r2, #16, #4
+
+    /*
+     * Cache line size = 4 << DminLine.
+     */
+    mov     r3, #4
+    lsl     r3, r3, r2
+
+    /*
+     * Align start address down.
+     */
+    sub     r2, r3, #1
+    bic     r0, r0, r2
+
+
+1:
+    /*
+     * Clean data cache line by MVA to PoC.
+     */
+    mcr     p15, 0, r0, c7, c10, 1
+
+    add     r0, r0, r3
+
+    cmp     r0, r1
+    blo     1b
+
+    dsb     sy
+
+    bx      lr
+
+
+/* ------------------------------------------------------------------------- */
+/* Direct Linux handoff                                                      */
+/* ------------------------------------------------------------------------- */
+
+/*
+ * linux_boot()
+ *
+ *   r0 = kernel entry address
+ *   r1 = unused
+ *   r2 = physical DTB address
+ *
+ * The supplied r1 argument is ignored because this loader is using a
+ * Device Tree boot.
+ *
+ * Linux requires:
  *
  *   r0 = 0
  *   r1 = ~0
- *   r2 = physical address of DTB
+ *   r2 = physical DTB address
+ *
+ * This function NEVER returns.
  */
 
-.globl clean_dcache_range
+linux_boot:
 
-clean_dcache_range:
-    mrc p15, 0, r2, c0, c0, 1
-    ubfx r2, r2, #16, #4
+    /*
+     * Preserve kernel entry address.
+     */
+    mov     r3, r0
 
-    mov r3, #4
-    lsl r3, r3, r2
 
-    sub r2, r3, #1
-    bic r0, r0, r2
+    /*
+     * Linux ARM boot arguments.
+     */
+    mov     r0, #0
+    mvn     r1, #0
 
-1:
-    mcr p15, 0, r0, c7, c10, 1
-    add r0, r0, r3
-    cmp r0, r1
-    blo 1b
 
-    dsb sy
-    bx lr
+    /*
+     * r2 already contains the physical DTB address.
+     */
 
-prepare_boot:
-    mrs r3, cpsr
 
-    bic r3, r3, #0x1f
-    orr r3, r3, #0x13       @ SVC32
-    orr r3, r3, #0xc0       @ IRQ + FIQ disabled
+    /*
+     * ---------------------------------------------------------------------
+     * Force SVC32 and disable IRQ/FIQ again immediately before entry.
+     * ---------------------------------------------------------------------
+     */
 
-    msr cpsr_c, r3
+    mrs     r12, cpsr
 
-    mrc p15, 0, r3, c1, c0, 0
+    bic     r12, r12, #0x1f
+    orr     r12, r12, #0x13
+    orr     r12, r12, #0xc0
 
-    bic r3, r3, #0x01       @ MMU off
-    bic r3, r3, #0x04       @ D-cache off
-    bic r3, r3, #0x1000     @ I-cache off
-    bic r3, r3, #0x800      @ BP off
-
-    mcr p15, 0, r3, c1, c0, 0
-
-    dsb sy
+    msr     cpsr_c, r12
     isb
 
-    bx lr
+
+    /*
+     * ---------------------------------------------------------------------
+     * DIRECT JUMP TO KERNEL
+     * ---------------------------------------------------------------------
+     *
+     * No BL.
+     * No BLX.
+     * No return address.
+     *
+     * Kernel is entered in ARM state.
+     */
+
+    bx      r3
+
+
+    /*
+     * Should never be reached.
+     */
+1:
+    b       1b
+
 
 /* ------------------------------------------------------------------------- */
 /* Halt                                                                      */
@@ -407,8 +657,9 @@ prepare_boot:
 
 halt:
 
+1:
     wfe
-    bne halt
+    b       1b
 
 
 /* ------------------------------------------------------------------------- */
@@ -417,18 +668,22 @@ halt:
 
 enable_irq:
 
-    mrs r1, cpsr
-    bic r1, r1, #0x80
-    msr cpsr_c, r1
-    bx lr
+    mrs     r1, cpsr
+    bic     r1, r1, #0x80
+    msr     cpsr_c, r1
+    isb
+
+    bx      lr
 
 
 disable_irq:
 
-    mrs r1, cpsr
-    orr r1, r1, #0x80
-    msr cpsr_c, r1
-    bx lr
+    mrs     r1, cpsr
+    orr     r1, r1, #0x80
+    msr     cpsr_c, r1
+    isb
+
+    bx      lr
 
 
 /* ------------------------------------------------------------------------- */
@@ -437,18 +692,22 @@ disable_irq:
 
 enable_fiq:
 
-    mrs r1, cpsr
-    bic r1, r1, #0x40
-    msr cpsr_c, r1
-    bx lr
+    mrs     r1, cpsr
+    bic     r1, r1, #0x40
+    msr     cpsr_c, r1
+    isb
+
+    bx      lr
 
 
 disable_fiq:
 
-    mrs r1, cpsr
-    orr r1, r1, #0x40
-    msr cpsr_c, r1
-    bx lr
+    mrs     r1, cpsr
+    orr     r1, r1, #0x40
+    msr     cpsr_c, r1
+    isb
+
+    bx      lr
 
 
 /* ------------------------------------------------------------------------- */
@@ -460,36 +719,42 @@ enable_mmu:
     /*
      * Invalidate TLB.
      */
-    mcr p15, 0, r2, c8, c7, 0
+    mcr     p15, 0, r2, c8, c7, 0
+
+    dsb     sy
+    isb
 
 
     /*
      * Set Translation Table Base Control Register.
      */
-    mov r2, #0x8000
-    mcr p15, 0, r2, c2, c0, 2
+    mov     r2, #0x8000
+    mcr     p15, 0, r2, c2, c0, 2
 
 
     /*
      * Set Translation Table Base Register 0.
      */
-    mcr p15, 0, r0, c2, c0, 0
+    mcr     p15, 0, r0, c2, c0, 0
 
 
     /*
      * Set Domain Access Control Register.
      */
-    mcr p15, 0, r1, c3, c0, 0
+    mcr     p15, 0, r1, c3, c0, 0
 
 
     /*
      * Enable MMU.
      */
-    mrc p15, 0, r2, c1, c0, 0
-    orr r2, r2, #0x1
-    mcr p15, 0, r2, c1, c0, 0
+    mrc     p15, 0, r2, c1, c0, 0
+    orr     r2, r2, #0x1
+    mcr     p15, 0, r2, c1, c0, 0
 
-    bx lr
+    dsb     sy
+    isb
+
+    bx      lr
 
 
 /* ------------------------------------------------------------------------- */
@@ -498,24 +763,28 @@ enable_mmu:
 
 read_cp15:
 
-    mrc p15, 0, r2, c1, c0, 0
-    bx lr
+    mrc     p15, 0, r2, c1, c0, 0
+    bx      lr
 
 
 /*
  * WARNING:
  *
  * This function writes 0xffffffff to SCTLR.
- * It is NOT suitable for preparing a Linux kernel handoff.
+ * It is NOT suitable for Linux handoff.
  *
- * Kept here for compatibility with the original bootloader.
+ * Kept for compatibility with the original bootloader.
  */
 
 reset_cp15:
 
-    mvn r0, #0x0
-    mcr p15, 0, r0, c1, c0, 0
-    bx lr
+    mvn     r0, #0x0
+    mcr     p15, 0, r0, c1, c0, 0
+
+    dsb     sy
+    isb
+
+    bx      lr
 
 
 /* ------------------------------------------------------------------------- */
@@ -524,4 +793,4 @@ reset_cp15:
 
 loop:
 
-    b loop
+    b       loop

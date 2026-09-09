@@ -25,4 +25,4 @@ clean:
 	rm vladBootin.img
 
 run: all
-	qemu-system-arm -M raspi2b -cpu cortex-a7 -m 1024M -kernel build/vladBootin.elf -dtb Image_Loader/bcm2709-rpi-2-b.dtb -serial pty -display gtk -gdb tcp::9000 
+	qemu-system-arm -M raspi2b -cpu cortex-a7 -m 1024M -kernel build/vladBootin.elf -sd Image_Loader/2026-06-18-raspios-trixie-armhf-lite.img -dtb Image_Loader/bcm2709-rpi-2-b.dtb -serial pty -display gtk -gdb tcp::9000 

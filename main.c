@@ -36,6 +36,7 @@ void memoryDump();
 extern void halt(void);
 extern void prepare_boot(void);
 extern void clean_dcache_range(unsigned int start, unsigned int end);
+extern void linux_boot(uint32_t kernel_entry,uint32_t machine_type,uint32_t dtb);
 
 //Global Vars
 uint32_t gr0;
@@ -601,17 +602,7 @@ void bootFromSerial(char *args, unsigned int args_len)
     }
     while(c != SYN);
 
-    /*
-     * Binary protocol starts here.
-     */
     uart_putc(ACK);
-
-
-    /*
-     * ---------------------------------------------------------------------
-     * Receive kernel size
-     * ---------------------------------------------------------------------
-     */
 
     unsigned int kernel_size = 0;
 
@@ -620,10 +611,6 @@ void bootFromSerial(char *args, unsigned int args_len)
     kernel_size |= ((unsigned int)uart_getc()) << 16;
     kernel_size |= ((unsigned int)uart_getc()) << 24;
 
-
-    /*
-     * Debug exit sequence: QWER
-     */
     if(kernel_size == 0x52455751 && DEBUG)
     {
         uart_putc(ACK);
@@ -631,21 +618,12 @@ void bootFromSerial(char *args, unsigned int args_len)
     }
 
 
-    /*
-     * Kernel must not be empty.
-     */
     if(kernel_size == 0)
     {
         uart_putc(NAK);
         return;
     }
 
-
-    /*
-     * ---------------------------------------------------------------------
-     * Kernel destination
-     * ---------------------------------------------------------------------
-     */
 
     unsigned char *kernel_start =
         (unsigned char *)KERNEL_LOAD_ADDR;
@@ -654,9 +632,6 @@ void bootFromSerial(char *args, unsigned int args_len)
         kernel_start + kernel_size;
 
 
-    /*
-     * Validate kernel range.
-     */
     if(kernel_end < kernel_start ||
        kernel_end > (unsigned char *)DTB_LOAD_ADDR)
     {
@@ -665,17 +640,8 @@ void bootFromSerial(char *args, unsigned int args_len)
     }
 
 
-    /*
-     * Kernel size accepted.
-     */
     uart_putc(ACK);
 
-
-    /*
-     * ---------------------------------------------------------------------
-     * Receive kernel
-     * ---------------------------------------------------------------------
-     */
 
     unsigned char *kernel = kernel_start;
     unsigned int remaining = kernel_size;
@@ -698,16 +664,6 @@ void bootFromSerial(char *args, unsigned int args_len)
     }
 
 
-    /*
-     * ---------------------------------------------------------------------
-     * Receive DTB size
-     * ---------------------------------------------------------------------
-     *
-     * IMPORTANT:
-     * We are STILL in binary protocol mode.
-     * No printf() here.
-     */
-
     unsigned int dtb_size = 0;
 
     dtb_size |= ((unsigned int)uart_getc());
@@ -715,23 +671,12 @@ void bootFromSerial(char *args, unsigned int args_len)
     dtb_size |= ((unsigned int)uart_getc()) << 16;
     dtb_size |= ((unsigned int)uart_getc()) << 24;
 
-
-    /*
-     * Validate DTB size.
-     */
     if(dtb_size == 0 ||
        dtb_size > MAX_DTB_SIZE)
     {
         uart_putc(NAK);
         return;
     }
-
-
-    /*
-     * ---------------------------------------------------------------------
-     * DTB destination
-     * ---------------------------------------------------------------------
-     */
 
     unsigned char *dtb_start =
         (unsigned char *)DTB_LOAD_ADDR;
@@ -750,28 +695,13 @@ void bootFromSerial(char *args, unsigned int args_len)
         return;
     }
 
-
-    /*
-     * Make sure DTB does not overlap the kernel.
-     */
     if(dtb_start < kernel_end)
     {
         uart_putc(NAK);
         return;
     }
 
-
-    /*
-     * DTB size accepted.
-     */
     uart_putc(ACK);
-
-
-    /*
-     * ---------------------------------------------------------------------
-     * Receive DTB
-     * ---------------------------------------------------------------------
-     */
 
     unsigned char *dtb = dtb_start;
     remaining = dtb_size;
@@ -794,11 +724,7 @@ void bootFromSerial(char *args, unsigned int args_len)
     }
 
 
-    /*
-     * ---------------------------------------------------------------------
-     * Validate DTB magic
-     * ---------------------------------------------------------------------
-     */
+
 
     if(dtb_start[0] != 0xd0 ||
        dtb_start[1] != 0x0d ||
@@ -809,13 +735,6 @@ void bootFromSerial(char *args, unsigned int args_len)
     }
 
 
-    /*
-     * ---------------------------------------------------------------------
-     * Binary protocol is FINISHED.
-     * ---------------------------------------------------------------------
-     *
-     * From this point onward printf() is safe.
-     */
 
     printf("\r\nKernel received: %u bytes.", kernel_size);
     printf("\r\nDTB received: %u bytes.", dtb_size);
@@ -824,37 +743,38 @@ void bootFromSerial(char *args, unsigned int args_len)
     /*
     * Nothing that can touch peripherals after this point.
     */
-    /*clean_dcache_range(
-    (unsigned int)kernel_start,
-    (unsigned int)kernel_end
-    );
 
-    clean_dcache_range(
-        (unsigned int)dtb_start,
-        (unsigned int)dtb_end
-    );
-    */
     prepare_boot();
 
-    entry_fn fn = (entry_fn)kernel_start;
+    //entry_fn fn = (entry_fn)kernel_start;
 
-    fn(0,0xFFFFFFFF,DTB_LOAD_ADDR);
+    //fn(0,0xFFFFFFFF,DTB_LOAD_ADDR);
 
-    /*
-     * The kernel should never return.
-     */
-    printf("\r\nSomething went wrong. Dropping shell");
+    linux_boot(
+    (uint32_t)kernel_start,
+    0xFFFFFFFF,
+    DTB_LOAD_ADDR
+);
+
+    while(1){}
 }
 
 
 void vladBootin_main(uint32_t r0, uint32_t r1, uint32_t atags)
 {
+    
     //init_mmu();
     sd_init();
     uart_init();    
+    printf(
+    "\r\n!!! VLAD ENTRY r0=%08x r1=%08x r2=%08x !!!", r0, r1, atags);
+
+
+
     lfb_init();
     lfb_init();
     
+
     printf(gbanner,__TIMESTAMP__,__GNUC__, __GNUC_MINOR__);
     lfb_showpicture();
     

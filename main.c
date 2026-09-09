@@ -836,7 +836,7 @@ void bootFromFile(const char *kname, const char *dtbname)
     }
 
     if(!kname || kname[0] == '\0')
-        kname = "kernel7.img";
+        kname = "signed_kernel.img";
 
     if(!dtbname || dtbname[0] == '\0')
         dtbname = "bcm2709-rpi-2-b.dtb";
@@ -1122,10 +1122,6 @@ void bootFromSerial(char *args, unsigned int args_len)
 
     prepare_boot();
 
-    //entry_fn fn = (entry_fn)kernel_start;
-
-    //fn(0,0xFFFFFFFF,DTB_LOAD_ADDR);
-
     linux_boot(
     (uint32_t)kernel_start,
     0xFFFFFFFF,
@@ -1162,6 +1158,10 @@ void vladBootin_main(uint32_t r0, uint32_t r1, uint32_t atags)
     bootFromSerial(NULL,0);
     
     handleMenu();
+    
+    while(1) {
+        asm volatile("wfe"); // Mette il core in attesa senza farlo vagare
+    }
 }
 
 void stop_core()

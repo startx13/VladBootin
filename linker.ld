@@ -2,11 +2,8 @@ ENTRY(_start)
 
 SECTIONS
 {
-    /* Starts at LOADER_ADDR — spostato in alto per lasciare
-     * libero lo spazio basso (0x8000 e sotto) per il caricamento
-     * e la self-relocation dello zImage Linux. */
+    /* Starts at LOADER_ADDR */
     . = 0x00008000;
-    /* For AArch64, use . = 0x80000; */
     __start = .;
     __text_start = .;
     .text :

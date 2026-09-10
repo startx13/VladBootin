@@ -45,12 +45,6 @@ void bootFromSerial(char *args, unsigned int args_len)
     kernel_size |= ((unsigned int)uart_getc()) << 16;
     kernel_size |= ((unsigned int)uart_getc()) << 24;
 
-    /*if(kernel_size == 0x52455751 && DEBUG)
-    {
-        uart_putc(ACK);
-        return;
-    }*/
-
     if(kernel_size == 0)
     {
         uart_putc(NAK);

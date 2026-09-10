@@ -147,7 +147,7 @@ void uart_init()
      *      = 3,000,000 baud
      */
 
-    mmio_write(UART0_IBRD, 1);
+    mmio_write(UART0_IBRD, 2);
     mmio_write(UART0_FBRD, 0);
 
     /*

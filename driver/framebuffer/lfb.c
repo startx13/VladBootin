@@ -93,7 +93,7 @@ void lfb_init()
         pitch=mbox[33];
         lfb=(void*)((unsigned long)mbox[28]);
     } else {
-        printf("\r\nUnable to set screen resolution to %dx%dx32",WID,HEI);
+        printf("\r\n[LFB] Unable to set screen resolution to %dx%dx32",WID,HEI);
     }
 }
 

@@ -24,11 +24,11 @@
  *
  */
 
-#include "uart.h"
-#include "mbox.h"
-#include "homer.h"
-#include "banner.h"
-#include "printf.h"
+#include "../../driver/uart/uart.h"
+#include "../../driver/mbox/mbox.h"
+#include "../../core/graphics/homer.h"
+#include "../../core/graphics/banner.h"
+#include "../../lib/printf.h"
 
 
 unsigned int width, height, pitch, isrgb;

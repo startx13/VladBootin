@@ -1,7 +1,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "uart.h"
-#include "printf.h"
+#include "../../lib/printf.h"
 
 #ifndef GPFSEL1
 #define GPFSEL1 0x3F200004 // GPIO Function Select 1 - RPi 2 / BCM2836

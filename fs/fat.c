@@ -23,11 +23,11 @@
  *
  */
 
-#include "sd.h"
-#include "uart.h"
-#include "mm.h"
-#include "stdlib.h"
-#include "printf.h"
+#include "../driver/sd/sd.h"
+#include "../driver/uart/uart.h"
+#include "../core/mm.h"
+#include "../lib/stdlib.h"
+#include "../lib/printf.h"
 #include "fat.h"
 
 /* Partition start LBA */

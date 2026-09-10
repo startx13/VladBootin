@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 
 
-SERIAL_PORT = "/dev/pts/4"
+SERIAL_PORT = "/dev/pts/2"
 BAUDRATE = 1500000
 
 KERNEL_PATH = Path("kernel.img")

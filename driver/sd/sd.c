@@ -23,11 +23,11 @@
  *
  */
 
-#include "uart.h"
-#include "sd.h"
-#include "gpio.h"
-#include "delays.h"
-#include "printf.h"
+#include "../../driver/uart/uart.h"
+#include "../../driver/sd/sd.h"
+#include "../../driver/gpio/gpio.h"
+#include "../../driver/delays/delays.h"
+#include "../../lib/printf.h"
 
 #define EMMC_ARG2            ((volatile unsigned int*)(MMIO_BASE+0x00300000))
 #define EMMC_BLKSIZECNT      ((volatile unsigned int*)(MMIO_BASE+0x00300004))

@@ -1,4 +1,4 @@
-#include "printf.h"
+#include "../lib/printf.h"
 
 extern void enable_irq();
 extern void enable_fiq();

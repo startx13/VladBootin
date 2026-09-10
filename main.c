@@ -1,12 +1,12 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "lib/printf.h"
-#include "lib/uart.h"
-#include "lib/sd.h"
-#include "lib/fat.h"
+#include "driver/uart/uart.h"
+#include "driver/sd/sd.h"
+#include "fs/fat.h"
 #include "lib/stdlib.h"
-#include "lib/mm.h"
-#include "lib/lfb.h"
+#include "core/mm.h"
+#include "driver/framebuffer/lfb.h"
 #include "lib/fdt.h"
 
 #define CMD_BUFFER_LENGTH 256

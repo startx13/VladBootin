@@ -13,8 +13,8 @@
 #define TRUE 1
 #define FALSE 0
 
-#define KERNEL_LOAD_ADDR 0x03000000
-#define DTB_LOAD_ADDR    0x10000000
+#define KERNEL_LOAD_ADDR 0x10000000
+#define DTB_LOAD_ADDR    0x01000000
 #define MEMORY_END       0x3F000000
 #define MAX_DTB_SIZE     0x00100000
 
@@ -705,21 +705,9 @@ void bootFromSerial(char *args, unsigned int args_len)
     printf("\r\nBooting from serial.....");
     printf("\r\nWaiting for console to attach......");
 
-    /*
-     * Tell the host that the bootloader is ready.
-     *
-     * Everything before this point is human-readable console output,
-     * so the host must ignore it.
-     */
     uart_putc(READY);
 
     unsigned char c;
-
-    /*
-     * ---------------------------------------------------------------------
-     * Wait for SYN
-     * ---------------------------------------------------------------------
-     */
 
     do
     {
@@ -732,11 +720,9 @@ void bootFromSerial(char *args, unsigned int args_len)
 
     uart_putc(ACK);
 
-    /*
-     * ---------------------------------------------------------------------
-     * Kernel size
-     * ---------------------------------------------------------------------
-     */
+    /* =========================
+     * KERNEL SIZE
+     * ========================= */
 
     unsigned int kernel_size = 0;
 
@@ -763,8 +749,14 @@ void bootFromSerial(char *args, unsigned int args_len)
     unsigned char *kernel_end =
         kernel_start + kernel_size;
 
+    /*
+     * Il kernel deve rimanere nella RAM.
+     *
+     * Non controlliamo DTB qui perché il DTB
+     * può tranquillamente stare PRIMA del kernel.
+     */
     if(kernel_end < kernel_start ||
-       kernel_end > (unsigned char *)DTB_LOAD_ADDR)
+       kernel_end > (unsigned char *)MEMORY_END)
     {
         uart_putc(NAK);
         return;
@@ -772,11 +764,9 @@ void bootFromSerial(char *args, unsigned int args_len)
 
     uart_putc(ACK);
 
-    /*
-     * ---------------------------------------------------------------------
-     * Kernel data
-     * ---------------------------------------------------------------------
-     */
+    /* =========================
+     * RECEIVE KERNEL
+     * ========================= */
 
     unsigned char *kernel = kernel_start;
     unsigned int remaining = kernel_size;
@@ -798,11 +788,9 @@ void bootFromSerial(char *args, unsigned int args_len)
         uart_putc(ACK);
     }
 
-    /*
-     * ---------------------------------------------------------------------
-     * DTB size
-     * ---------------------------------------------------------------------
-     */
+    /* =========================
+     * DTB SIZE
+     * ========================= */
 
     unsigned int dtb_size = 0;
 
@@ -825,7 +813,7 @@ void bootFromSerial(char *args, unsigned int args_len)
         dtb_start + dtb_size;
 
     /*
-     * Validate DTB range.
+     * Controllo overflow + limite RAM.
      */
     if(dtb_end < dtb_start ||
        dtb_end > (unsigned char *)MEMORY_END)
@@ -834,7 +822,18 @@ void bootFromSerial(char *args, unsigned int args_len)
         return;
     }
 
-    if(dtb_start < kernel_end)
+    /*
+     * Controllo generico di overlap.
+     *
+     * Gli intervalli sono:
+     *
+     *   [DTB_START,    DTB_END)
+     *   [KERNEL_START, KERNEL_END)
+     *
+     * Possono essere in qualsiasi ordine.
+     */
+    if((dtb_start < kernel_end) &&
+       (kernel_start < dtb_end))
     {
         uart_putc(NAK);
         return;
@@ -842,11 +841,9 @@ void bootFromSerial(char *args, unsigned int args_len)
 
     uart_putc(ACK);
 
-    /*
-     * ---------------------------------------------------------------------
-     * DTB data
-     * ---------------------------------------------------------------------
-     */
+    /* =========================
+     * RECEIVE DTB
+     * ========================= */
 
     unsigned char *dtb = dtb_start;
     remaining = dtb_size;
@@ -868,27 +865,22 @@ void bootFromSerial(char *args, unsigned int args_len)
         uart_putc(ACK);
     }
 
-    /*
-     * ---------------------------------------------------------------------
-     * Validate DTB magic
-     * ---------------------------------------------------------------------
-     */
+    /* =========================
+     * VALIDATE DTB MAGIC
+     * ========================= */
 
     if(dtb_start[0] != 0xd0 ||
        dtb_start[1] != 0x0d ||
        dtb_start[2] != 0xfe ||
        dtb_start[3] != 0xed)
     {
+        uart_putc(NAK);
         return;
     }
 
     printf("\r\nKernel received: %u bytes.", kernel_size);
     printf("\r\nDTB received: %u bytes.", dtb_size);
     printf("\r\nPreparing CPU for Linux...");
-
-    /*
-     * Nothing that can touch peripherals after this point.
-     */
 
     prepare_boot();
 

@@ -4,13 +4,12 @@ import time
 from pathlib import Path
 
 
-SERIAL_PORT = "/dev/ttyUSB4"
+SERIAL_PORT = "/dev/pts/4"
 BAUDRATE = 115200
 
 KERNEL_PATH = Path("kernel.img")
 DTB_PATH = Path("bcm2709-rpi-2-b.dtb")
 
-READY = 0x11
 SYN = 0x16
 ACK = 0x06
 NAK = 0x15
@@ -18,30 +17,7 @@ NAK = 0x15
 CHUNK_SIZE = 256
 
 ACK_TIMEOUT = 2.0
-READY_TIMEOUT = 5.0
 
-
-def wait_ready(ser):
-    print("Waiting for bootloader...")
-
-    deadline = time.monotonic() + READY_TIMEOUT
-
-    while time.monotonic() < deadline:
-        response = ser.read(1)
-
-        if not response:
-            continue
-
-        value = response[0]
-
-        if value == READY:
-            print("Bootloader ready.")
-            return
-
-        # Everything else is console output.
-        # Do not treat it as a protocol error.
-
-    raise RuntimeError("Timeout waiting for bootloader READY")
 
 
 def wait_ack(ser, description="ACK"):
@@ -168,12 +144,6 @@ def main():
 
             # Discard anything left over from startup.
             ser.reset_input_buffer()
-
-            # -----------------------------------------------------
-            # BOOTLOADER READY
-            # -----------------------------------------------------
-
-            wait_ready(ser)
 
             # -----------------------------------------------------
             # SYN

@@ -363,6 +363,6 @@ reset_cp15:
     dsb     sy
     isb
     bx      lr
-// Infinite loop                                                             // ------------------------------------------------------------------------- */
+/* Infinite loop */                                                            
 loop:
     b       loop

@@ -1,0 +1,1 @@
+void bootFromSerial(char *args, unsigned int args_len);

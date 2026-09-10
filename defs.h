@@ -1,0 +1,9 @@
+#define CMD_BUFFER_LENGTH 256
+#define TRUE 1
+#define FALSE 0
+
+#define KERNEL_LOAD_ADDR 0x10000000
+#define DTB_LOAD_ADDR    0x01000000
+#define MEMORY_END       0x3F000000
+#define MAX_DTB_SIZE     0x00100000
+

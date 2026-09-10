@@ -2,7 +2,7 @@
 #include "stdlib.h"
 #include "printf.h"
 
-static void fdt_update_memory(void *dtb_base, unsigned int memory_size)
+void fdt_update_memory(void *dtb_base, unsigned int memory_size)
 {
     unsigned char *dtb = (unsigned char *)dtb_base;
 
@@ -166,7 +166,7 @@ static void fdt_update_memory(void *dtb_base, unsigned int memory_size)
     printf("\r\n[BOOT] ERROR: memory@0/reg not found");
 }
 
-static void fdt_update_bootargs(void *dtb_base, const char *cmdline)
+void fdt_update_bootargs(void *dtb_base, const char *cmdline)
 {
     if(!dtb_base || !cmdline || cmdline[0] == '\0')
         return;

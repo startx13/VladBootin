@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 SERIAL_PORT = "/dev/pts/4"
-BAUDRATE = 115200
+BAUDRATE = 3000000
 
 KERNEL_PATH = Path("kernel.img")
 DTB_PATH = Path("bcm2709-rpi-2-b.dtb")

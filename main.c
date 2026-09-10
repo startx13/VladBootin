@@ -699,10 +699,19 @@ void bootFromSerial(char *args, unsigned int args_len)
     #define ACK              0x06
     #define NAK              0x15
     #define SYN              0x16
+    #define READY            0x11
     #define CHUNK_SIZE       256
 
     printf("\r\nBooting from serial.....");
     printf("\r\nWaiting for console to attach......");
+
+    /*
+     * Tell the host that the bootloader is ready.
+     *
+     * Everything before this point is human-readable console output,
+     * so the host must ignore it.
+     */
+    uart_putc(READY);
 
     unsigned char c;
 
@@ -723,6 +732,12 @@ void bootFromSerial(char *args, unsigned int args_len)
 
     uart_putc(ACK);
 
+    /*
+     * ---------------------------------------------------------------------
+     * Kernel size
+     * ---------------------------------------------------------------------
+     */
+
     unsigned int kernel_size = 0;
 
     kernel_size |= ((unsigned int)uart_getc());
@@ -736,20 +751,17 @@ void bootFromSerial(char *args, unsigned int args_len)
         return;
     }
 
-
     if(kernel_size == 0)
     {
         uart_putc(NAK);
         return;
     }
 
-
     unsigned char *kernel_start =
         (unsigned char *)KERNEL_LOAD_ADDR;
 
     unsigned char *kernel_end =
         kernel_start + kernel_size;
-
 
     if(kernel_end < kernel_start ||
        kernel_end > (unsigned char *)DTB_LOAD_ADDR)
@@ -758,9 +770,13 @@ void bootFromSerial(char *args, unsigned int args_len)
         return;
     }
 
-
     uart_putc(ACK);
 
+    /*
+     * ---------------------------------------------------------------------
+     * Kernel data
+     * ---------------------------------------------------------------------
+     */
 
     unsigned char *kernel = kernel_start;
     unsigned int remaining = kernel_size;
@@ -782,6 +798,11 @@ void bootFromSerial(char *args, unsigned int args_len)
         uart_putc(ACK);
     }
 
+    /*
+     * ---------------------------------------------------------------------
+     * DTB size
+     * ---------------------------------------------------------------------
+     */
 
     unsigned int dtb_size = 0;
 
@@ -803,7 +824,6 @@ void bootFromSerial(char *args, unsigned int args_len)
     unsigned char *dtb_end =
         dtb_start + dtb_size;
 
-
     /*
      * Validate DTB range.
      */
@@ -821,6 +841,12 @@ void bootFromSerial(char *args, unsigned int args_len)
     }
 
     uart_putc(ACK);
+
+    /*
+     * ---------------------------------------------------------------------
+     * DTB data
+     * ---------------------------------------------------------------------
+     */
 
     unsigned char *dtb = dtb_start;
     remaining = dtb_size;
@@ -842,8 +868,11 @@ void bootFromSerial(char *args, unsigned int args_len)
         uart_putc(ACK);
     }
 
-
-
+    /*
+     * ---------------------------------------------------------------------
+     * Validate DTB magic
+     * ---------------------------------------------------------------------
+     */
 
     if(dtb_start[0] != 0xd0 ||
        dtb_start[1] != 0x0d ||
@@ -853,27 +882,24 @@ void bootFromSerial(char *args, unsigned int args_len)
         return;
     }
 
-
-
     printf("\r\nKernel received: %u bytes.", kernel_size);
     printf("\r\nDTB received: %u bytes.", dtb_size);
     printf("\r\nPreparing CPU for Linux...");
 
     /*
-    * Nothing that can touch peripherals after this point.
-    */
+     * Nothing that can touch peripherals after this point.
+     */
 
     prepare_boot();
 
     linux_boot(
-    (uint32_t)kernel_start,
-    0xFFFFFFFF,
-    DTB_LOAD_ADDR
-);
+        (uint32_t)kernel_start,
+        0xFFFFFFFF,
+        DTB_LOAD_ADDR
+    );
 
     while(1){}
 }
-
 
 void vladBootin_main(uint32_t r0, uint32_t r1, uint32_t atags)
 {

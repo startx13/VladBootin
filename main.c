@@ -16,12 +16,15 @@
 #include "driver/sd/sd.h"
 #include "fs/fat.h"
 
+#include "lib/crypto/boot_pubkey.h"     /* BOOT_PUBKEY_N, BOOT_PUBKEY_N_EXPONENT */
+#include "lib/crypto/test_signature.h"  /* signature_bytes, generata sopra */
+
 #include "defs.h"
 
 unsigned short int DEBUG = 0;
  
 const char* gbanner = "\r\n-------------------------\r\nVladBootin v0.1 beta     \r\nBuilt for Raspberry Pi 2 \r\nBuild Timestamp: %s\r\nGCC version: %d.%d\r\n-------------------------\r\n";
-const char* usage = "\r\n----------------------------------------------\r\nhelp - prints this\r\nbanner - prints VladBootin banner\r\nserialboot - starts boot from serial routine\r\nprintf - print something (printf <string>)\r\ndebug - enable debug log\r\nsdinit - init sd card\r\nfileboot - boot from file kernel7.img\r\ntestfile - dump test file\r\nls - list file\r\nmem - print memory map\r\nrelocate - relocate the program at __end\r\ndump - dump heap to stdio\r\ntestalloc - test alloc routine\r\nfatpart - find partition LBA\r\nmmuinit - Start the MMU and interrupt\r\nhomer - show picture\r\nmemreset - clear memory\r\nclearfb - clear framebuffer\r\ncat - print a file (cat <file>)\r\nboot - boot from file (boot <kernel> [dtb])\r\nhexcat - read file in hex format\r\n----------------------------------------------\r\n";
+const char* usage = "\r\n----------------------------------------------\r\nhelp - prints this\r\nbanner - prints VladBootin banner\r\nserialboot - starts boot from serial routine\r\nprintf - print something (printf <string>)\r\ndebug - enable debug log\r\nsdinit - init sd card\r\nfileboot - boot from file kernel7.img\r\ntestfile - dump test file\r\nls - list file\r\nmem - print memory map\r\nrelocate - relocate the program at __end\r\ndump - dump heap to stdio\r\ntestalloc - test alloc routine\r\nfatpart - find partition LBA\r\nhomer - show picture\r\nmemreset - clear memory\r\nclearfb - clear framebuffer\r\ncat - print a file (cat <file>)\r\nboot - boot from file (boot <kernel> [dtb])\r\nhexcat - read file in hex format\r\ntestrsa - test rsa signature verification\r\n----------------------------------------------\r\n";
 
 //Typedefs
 typedef void (*entry_fn)(uint32_t r0, uint32_t r1, uint32_t atags);
@@ -66,25 +69,21 @@ extern void linux_boot(uint32_t kernel_entry,uint32_t machine_type,uint32_t dtb)
 
 void testRSA()
 {
-    static const uint8_t PUBKEY_N[256] = { /* ... i tuoi 256 byte ... */ };
-
     rsa_pubkey_t pubkey;
-    bn_from_be_bytes(&pubkey.n, PUBKEY_N, sizeof(PUBKEY_N));
-    pubkey.e = 65537;
+    bn_from_be_bytes(&pubkey.n, BOOT_PUBKEY_N, sizeof(BOOT_PUBKEY_N));
+    pubkey.e = BOOT_PUBKEY_N_EXPONENT;
 
-    /* 2. Digest del kernel caricato in RAM */
     const char *prova = "Testo Di Prova";
     uint8_t digest[32];
     sha256(prova, strlen(prova), digest);
     print_sha256(digest);
 
-    /* 3. Verifica: signature_bytes sono i 256 byte della firma RSA */
     rsa_verify_result_t res = rsa_pkcs1_v15_verify_sha256(&pubkey, signature_bytes, digest);
 
-    if (res != RSA_VERIFY_OK) 
-    {
+    if (res == RSA_VERIFY_OK) {
         printf("\r\n[RSA] Signature OK");
-    
+    } else {
+        printf("\r\n[RSA] Signature FAILED (code %d)", (int)res);
     }
 }
 
@@ -244,6 +243,7 @@ void parseCommand(char* buf,unsigned int *length)
     char cat_f[] = "cat";
     char boot_f[] = "boot";
     char hexcat_f[] = "hexcat";
+    char testrsa_f[] = "testrsa";
     
     if(bufCompare(command,serialboot,cmd_len))
     {
@@ -424,6 +424,16 @@ void parseCommand(char* buf,unsigned int *length)
     if(bufCompare(command,clearfb_f,cmd_len))
     {
         lfb_clear();
+        emptyBuffer(buf,CMD_BUFFER_LENGTH);
+        emptyBuffer(command,CMD_BUFFER_LENGTH);
+        emptyBuffer(args,CMD_BUFFER_LENGTH);
+        *length = 0;
+        return;
+    }
+
+    if(bufCompare(command,testrsa_f,cmd_len))
+    {
+        testRSA();
         emptyBuffer(buf,CMD_BUFFER_LENGTH);
         emptyBuffer(command,CMD_BUFFER_LENGTH);
         emptyBuffer(args,CMD_BUFFER_LENGTH);

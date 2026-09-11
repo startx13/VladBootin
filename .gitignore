@@ -3,3 +3,8 @@
 *.elf
 *.o
 *.pem
+lib/crypto/boot_pubkey.h
+lib/crypto/test_signature.h
+Image_Loader/msg.bin
+Image_Loader/msg.sig
+

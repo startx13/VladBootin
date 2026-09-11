@@ -584,17 +584,27 @@ int sd_init()
         r |= 1 << 15;
         *GPHEN1 = r;
 
-        /* GPIO_CLK, GPIO_CMD */
+        /* GPIO_CLK, GPIO_CMD - MODIFICATO PER RPI 2 REALE */
         r = *GPFSEL4;
         r |= (7 << (8 * 3)) | (7 << (9 * 3));
         *GPFSEL4 = r;
 
-        *GPPUD = 2;
+        // 1. Applica il Pull-Up (GPPUD = 2) SOLO al comando (Pin 49 -> bit 17)
+        *GPPUD = 2; 
         wait_cycles(150);
-        *GPPUDCLK1 = (1 << 16) | (1 << 17);
+        *GPPUDCLK1 = (1 << 17); 
         wait_cycles(150);
         *GPPUD = 0;
         *GPPUDCLK1 = 0;
+
+        // 2. Disabilita il Pull (GPPUD = 0) SOLO sul clock (Pin 48 -> bit 16)
+        *GPPUD = 0; 
+        wait_cycles(150);
+        *GPPUDCLK1 = (1 << 16);
+        wait_cycles(150);
+        *GPPUD = 0;
+        *GPPUDCLK1 = 0;
+
 
         /* GPIO_DAT0, GPIO_DAT1, GPIO_DAT2, GPIO_DAT3 */
         r = *GPFSEL5;
@@ -683,12 +693,12 @@ int sd_init()
         /*
          * ACMD41.
          */
-        cnt = 6;
+        cnt = 1000;
         r = 0;
 
         while(!(r & ACMD41_CMD_COMPLETE) && cnt--)
         {
-            wait_cycles(400);
+            wait_msec(10);
 
             r = sd_cmd(CMD_SEND_OP_COND, ACMD41_ARG_HC);
 
@@ -742,10 +752,10 @@ int sd_init()
         if(sd_err)
             return sd_err;
 
-        /*
-         * 25 MHz.
+         /*
+         * 4 MHz (abbassato per stabilità su hardware reale).
          */
-        if((r = sd_clk(25000000)))
+        if((r = sd_clk(4000000)))
             return r;
 
         /*

@@ -1,15 +1,18 @@
 #include <stddef.h>
 #include <stdint.h>
+#include "lib/stdlib.h"
 #include "lib/printf.h"
+#include "lib/fdt.h"
+
+#include "core/mm.h"
+#include "core/boot_mode/serial_boot.h"
+#include "core/boot_mode/file_boot.h"
+
+#include "driver/framebuffer/lfb.h"
 #include "driver/uart/uart.h"
 #include "driver/sd/sd.h"
 #include "fs/fat.h"
-#include "lib/stdlib.h"
-#include "core/mm.h"
-#include "driver/framebuffer/lfb.h"
-#include "lib/fdt.h"
-#include "core/boot_mode/serial_boot.h"
-#include "core/boot_mode/file_boot.h"
+
 #include "defs.h"
 
 unsigned short int DEBUG = 0;
@@ -208,7 +211,6 @@ void parseCommand(char* buf,unsigned int *length)
     char dump_f[] = "dump";
     char testalloc_f[] = "testalloc";
     char fatpart_f[] = "fatpart";
-    char mmuinit_f[] = "mmuinit";
     char homer_f[] = "homer";
     char memreset_f[] = "memreset";
     char clearfb_f[] = "clearfb";
@@ -369,15 +371,6 @@ void parseCommand(char* buf,unsigned int *length)
         return;
     }
     
-    if(bufCompare(command,mmuinit_f,cmd_len))
-    {
-        init_mmu();
-        emptyBuffer(buf,CMD_BUFFER_LENGTH);
-        emptyBuffer(command,CMD_BUFFER_LENGTH);
-        emptyBuffer(args,CMD_BUFFER_LENGTH);
-        *length = 0;
-        return;
-    }
     
     if(bufCompare(command,homer_f,cmd_len))
     {

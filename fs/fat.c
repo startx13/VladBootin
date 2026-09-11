@@ -456,45 +456,168 @@ unsigned int fat_readfile_to(unsigned int cluster, void *dest, unsigned int max_
     if(!fat_getpartition() || cluster < 2 || !dest || max_size == 0)
         return 0;
 
-    unsigned int data_sec = partitionlba + bpb->rsc + ((unsigned int)bpb->nf * bpb->spf32);
+    unsigned int data_sec =
+        partitionlba +
+        bpb->rsc +
+        ((unsigned int)bpb->nf * bpb->spf32);
+
     unsigned int cluster_bytes = bpb->spc * 512;
+
     unsigned char *out = (unsigned char *)dest;
     unsigned int total_read = 0;
 
-    while(cluster >= 2 && cluster < 0x0FFFFFF8 && total_read < max_size)
+    /*
+     * Temporary buffer used only when the final read is not
+     * sector-aligned.
+     */
+    static unsigned int sector_buf[128];
+
+    while(cluster >= 2 &&
+          cluster < 0x0FFFFFF8 &&
+          total_read < max_size)
     {
         unsigned int run_start = cluster;
         unsigned int run_clusters = 1;
         unsigned int next_cl = fat_get_next_cluster(cluster);
 
-        /* Coalesce contiguous clusters up to 128 sectors (64 KB) */
+        /*
+         * Coalesce contiguous clusters, but never exceed
+         * the requested max_size.
+         */
         while(next_cl == cluster + 1 &&
               ((run_clusters + 1) * bpb->spc <= 128) &&
-              (total_read + (run_clusters + 1) * cluster_bytes <= max_size))
+              (total_read +
+               (run_clusters + 1) * cluster_bytes <= max_size))
         {
             run_clusters++;
             cluster = next_cl;
             next_cl = fat_get_next_cluster(cluster);
         }
 
-        unsigned int lba = data_sec + ((run_start - 2) * bpb->spc);
-        unsigned int sectors_to_read = run_clusters * bpb->spc;
-        unsigned int bytes_to_read = sectors_to_read * 512;
+        unsigned int lba =
+            data_sec + ((run_start - 2) * bpb->spc);
 
-        if(total_read + bytes_to_read > max_size)
+        unsigned int bytes_remaining = max_size - total_read;
+        unsigned int run_bytes = run_clusters * cluster_bytes;
+
+        /*
+         * Entire run fits in the destination.
+         * We can read it directly.
+         */
+        if(bytes_remaining >= run_bytes)
         {
-            sectors_to_read = (max_size - total_read + 511) / 512;
-            bytes_to_read = sectors_to_read * 512;
+            unsigned int sectors_to_read =
+                run_clusters * bpb->spc;
+
+            if(!sd_readblock(
+                    lba,
+                    (unsigned int *)out,
+                    sectors_to_read))
+            {
+                printf(
+                    "\r\n[FAT] ERROR: Read error at cluster "
+                    "0x%x (LBA 0x%x)",
+                    run_start,
+                    lba
+                );
+                break;
+            }
+
+            out += run_bytes;
+            total_read += run_bytes;
         }
-
-        if(!sd_readblock(lba, (unsigned int *)out, sectors_to_read))
+        else
         {
-            printf("\r\n[FAT] ERROR: Read error at cluster 0x%x (LBA 0x%x)", run_start, lba);
+            /*
+             * Only part of this run fits.
+             *
+             * SD reads whole sectors, so read sectors into a
+             * temporary buffer and copy only the requested bytes.
+             */
+            unsigned int sectors_to_read =
+                (bytes_remaining + 511) / 512;
+
+            unsigned int physical_bytes =
+                sectors_to_read * 512;
+
+            if(physical_bytes > sizeof(sector_buf))
+            {
+                /*
+                 * This should only happen if the run is larger
+                 * than our temporary buffer. Fall back to
+                 * sector-by-sector copying.
+                 */
+                unsigned int sectors_done = 0;
+
+                while(sectors_done < sectors_to_read)
+                {
+                    if(!sd_readblock(
+                            lba + sectors_done,
+                            sector_buf,
+                            1))
+                    {
+                        printf(
+                            "\r\n[FAT] ERROR: Read error "
+                            "at LBA 0x%x",
+                            lba + sectors_done
+                        );
+                        return total_read;
+                    }
+
+                    unsigned int copy =
+                        bytes_remaining - total_read;
+
+                    if(copy > 512)
+                        copy = 512;
+
+                    memcpy(
+                        out,
+                        sector_buf,
+                        copy
+                    );
+
+                    out += copy;
+                    total_read += copy;
+                    sectors_done++;
+
+                    if(total_read >= max_size)
+                        break;
+                }
+
+                break;
+            }
+
+            if(!sd_readblock(
+                    lba,
+                    sector_buf,
+                    sectors_to_read))
+            {
+                printf(
+                    "\r\n[FAT] ERROR: Read error at cluster "
+                    "0x%x (LBA 0x%x)",
+                    run_start,
+                    lba
+                );
+                break;
+            }
+
+            /*
+             * IMPORTANT:
+             * Only expose bytes belonging to the file/request.
+             * Never return/write the sector padding.
+             */
+            memcpy(
+                out,
+                sector_buf,
+                bytes_remaining
+            );
+
+            total_read += bytes_remaining;
+            out += bytes_remaining;
+
             break;
         }
 
-        out += bytes_to_read;
-        total_read += bytes_to_read;
         cluster = next_cl;
     }
 

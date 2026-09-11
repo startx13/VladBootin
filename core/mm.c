@@ -65,16 +65,6 @@ static unsigned short int mmu_started = 0;
 
 void interrupt_init();
 
-void init_mmu()
-{
-    if(!mmu_started)
-    {
-        interrupt_init();
-        enable_mmu(MMUTABLEBASE, ~0);
-        mmu_started = 1;
-    }
-}
-
 void fiq_interrupt_handler(void)
 {
     printf("\r\n[MM] FIQ Interrupt");

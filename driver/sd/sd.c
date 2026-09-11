@@ -231,10 +231,10 @@ int sd_cmd(unsigned int code, unsigned int arg)
         return 0;
     }
 
-    uart_puts("\r\n[SD] Sending command ");
-    uart_hex(code);
-    uart_puts(" arg ");
-    uart_hex(arg);
+    //uart_puts("\r\n[SD] Sending command ");
+    //uart_hex(code);
+    //uart_puts(" arg ");
+    //uart_hex(arg);
 
     /*
      * Clear pending interrupts.
@@ -327,10 +327,10 @@ int sd_readblock(unsigned int lba, unsigned int *buffer, unsigned int num)
     if(num < 1)
         num = 1;
 
-    uart_puts("\r\n[SD] sd_readblock lba ");
-    uart_hex(lba);
-    uart_puts(" num ");
-    uart_hex(num);
+    //uart_puts("\r\n[SD] sd_readblock lba ");
+    //uart_hex(lba);
+    //uart_puts(" num ");
+    //uart_hex(num);
 
     /*
      * Data path must be idle.

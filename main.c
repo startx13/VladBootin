@@ -22,7 +22,6 @@ typedef void (*entry_fn)(uint32_t r0, uint32_t r1, uint32_t atags);
 //Functions header
 void printMemoryMap();
 void handleMenu();
-void bootFromSerial(char*args,unsigned int args_len);
 void parseCommand(char* buffer,unsigned int *length);
 short unsigned int bufCompare(char* buf1,char* buf2,unsigned int len);
 void testAlloc();
@@ -649,7 +648,7 @@ void bootFromFile(const char *kname, const char *dtbname)
 
     if(cmdline_buf[0] == '\0')
     {
-        strcpy(cmdline_buf, "console=ttyAMA0,115200 root=/dev/mmcblk0p2 rootwait nosmp");
+        strcpy(cmdline_buf, "console=ttyAMA0,115200 root=/dev/mmcblk0p2 rootwait");
     }
 
     fdt_update_bootargs((void *)DTB_LOAD_ADDR, cmdline_buf);
@@ -693,9 +692,6 @@ void testRead()
 
 void vladBootin_main(uint32_t r0, uint32_t r1, uint32_t atags)
 {
-    
-    //init_mmu();
-    //sd_init();
     uart_init();    
 
     lfb_init();
@@ -714,10 +710,26 @@ void vladBootin_main(uint32_t r0, uint32_t r1, uint32_t atags)
     
     //Try to boot from serial. If it fails go to shell.
     
-    bootFromSerial(NULL,0);
+    int stat = bootFromSerial(NULL, 0); 
+    
+    switch(stat)
+    {
+        case RET_ERR: 
+            handleMenu(); // Errore seriale -> Va al menu
+            break;
+
+        case RET_TIMEOUT:
+            sd_init();
+            bootFromFile(NULL, 0);
+            break;
+
+        case RET_EXIT:
+            handleMenu(); // Utente preme ESC -> Va al menu
+            break;
+    }
     
     handleMenu();
-    
+
     while(1) {
         asm volatile("wfe"); // Mette il core in attesa senza farlo vagare
     }

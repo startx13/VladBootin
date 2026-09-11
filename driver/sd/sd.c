@@ -134,7 +134,7 @@ int sd_status(unsigned int mask)
           !(*EMMC_INTERRUPT & INT_ERROR_MASK) &&
           cnt--)
     {
-        wait_msec(1);
+        wait_cycles(10);
     }
 
     if(*EMMC_INTERRUPT & INT_ERROR_MASK)
@@ -156,7 +156,7 @@ int sd_int(unsigned int mask)
     unsigned int cnt = 10000;
 
     while(!(*EMMC_INTERRUPT & m) && cnt--)
-        wait_msec(1);
+        wait_cycles(10);
 
     r = *EMMC_INTERRUPT;
 
@@ -455,7 +455,7 @@ int sd_clk(unsigned int f)
     int cnt = 100000;
 
     while((*EMMC_STATUS & (SR_CMD_INHIBIT | SR_DAT_INHIBIT)) && cnt--)
-        wait_msec(1);
+        wait_cycles(10);
 
     if(cnt <= 0)
     {

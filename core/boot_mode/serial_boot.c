@@ -2,13 +2,14 @@
 #include "../../defs.h"
 #include "../../driver/uart/uart.h"
 #include "../../lib/printf.h"
+#include "../../driver/delays/delays.h"
 
 extern void halt(void);
 extern void prepare_boot(void);
 extern void clean_dcache_range(unsigned int start, unsigned int end);
 extern void linux_boot(uint32_t kernel_entry,uint32_t machine_type,uint32_t dtb);
 
-void bootFromSerial(char *args, unsigned int args_len)
+int bootFromSerial(char *args, unsigned int args_len)
 {
     #define ACK              0x06
     #define NAK              0x15
@@ -23,14 +24,33 @@ void bootFromSerial(char *args, unsigned int args_len)
 
     unsigned char c;
 
-    do
-    {
-        c = uart_getc();
+    unsigned int t = 0;
 
-        if(c == 0x03 || c == 0x1B)   // Ctrl+C / ESC
-            return;
+    // Gira per un massimo di 5 secondi (5000 millisecondi)
+    while (t < 10000) 
+    {
+        // Controlla se la seriale ha ricevuto un carattere (NON è bloccante)
+        if (uart_is_readable()) 
+        {
+            c = uart_getc(); // Ora è sicuro leggerlo perché sappiamo che c'è
+            
+            if (c == 0x03 || c == 0x1B)   // Se premi Ctrl+C o ESC esce subito
+                return RET_EXIT;
+            
+            if (c == SYN)                 // Se il loader invia il SYN interrompe il timer
+                break;
+        }
+
+        wait_msec(1); // Aspetta 1 millisecondo reale
+        t++;          // Incrementa il contatore del tempo passato
     }
-    while(c != SYN);
+
+    // Se sono passati 5 secondi e NON è arrivato il carattere SYN dal loader
+    if (c != SYN) 
+    {
+        printf("\r\n[SERIAL] No Loader attached within 5s.");
+        return RET_TIMEOUT; // Esce e dice al main di andare al boot da file
+    }
 
     uart_putc(ACK);
 
@@ -48,7 +68,7 @@ void bootFromSerial(char *args, unsigned int args_len)
     if(kernel_size == 0)
     {
         uart_putc(NAK);
-        return;
+        return RET_ERR;
     }
 
     unsigned char *kernel_start =
@@ -67,7 +87,7 @@ void bootFromSerial(char *args, unsigned int args_len)
        kernel_end > (unsigned char *)MEMORY_END)
     {
         uart_putc(NAK);
-        return;
+        return RET_ERR;
     }
 
     uart_putc(ACK);
@@ -111,7 +131,7 @@ void bootFromSerial(char *args, unsigned int args_len)
        dtb_size > MAX_DTB_SIZE)
     {
         uart_putc(NAK);
-        return;
+        return RET_ERR;
     }
 
     unsigned char *dtb_start =
@@ -127,7 +147,7 @@ void bootFromSerial(char *args, unsigned int args_len)
        dtb_end > (unsigned char *)MEMORY_END)
     {
         uart_putc(NAK);
-        return;
+        return RET_ERR;
     }
 
     /*
@@ -144,7 +164,7 @@ void bootFromSerial(char *args, unsigned int args_len)
        (kernel_start < dtb_end))
     {
         uart_putc(NAK);
-        return;
+        return RET_ERR;
     }
 
     uart_putc(ACK);
@@ -183,7 +203,7 @@ void bootFromSerial(char *args, unsigned int args_len)
        dtb_start[3] != 0xed)
     {
         uart_putc(NAK);
-        return;
+        return RET_ERR;
     }
 
     printf("\r\nKernel received: %u bytes.", kernel_size);

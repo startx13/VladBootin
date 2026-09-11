@@ -30,7 +30,7 @@
 #define SYSTMR_HI        ((volatile unsigned int*)(MMIO_BASE+0x00003008))
 
 /**
- * Wait N CPU cycles (ARM CPU only)
+ * Aspetta N cicli CPU (Funziona su HW e QEMU)
  */
 void wait_cycles(unsigned int n)
 {
@@ -38,37 +38,43 @@ void wait_cycles(unsigned int n)
 }
 
 /**
- * Wait N microsec (ARM CPU only)
- */
-void wait_msec(unsigned int n)
-{
-    asm volatile("__delay_%=: subs %[n], %[n], #1; bne __delay_%=\n"
-         : "=r"(n): [n]"0"(n) : "cc");
-}
-
-/**
- * Get System Timer's counter
+ * Riceve il contatore a 32 bit del System Timer hardware
  */
 unsigned long get_system_timer()
 {
-    unsigned int h=-1, l;
-    h=*SYSTMR_HI;
-    l=*SYSTMR_LO;
-    if(h!=*SYSTMR_HI) {
-        h=*SYSTMR_HI;
-        l=*SYSTMR_LO;
-    }
-    // Restituisce solo la parte bassa a 32 bit, niente più warning
-    return l; 
+    // Restituisce direttamente il registro a 32 bit basso del Broadcom Timer
+    return *SYSTMR_LO; 
 }
 
 /**
- * Wait N microsec (with BCM System Timer)
+ * Aspetta N microsecondi (Usa il timer hardware se presente, altrimenti calibra per QEMU)
  */
-void wait_msec_st(unsigned int n)
+void wait_usec(unsigned int n)
 {
-    unsigned long t=get_system_timer();
-    // we must check if it's non-zero, because qemu does not emulate
-    // system timer, and returning constant zero would mean infinite loop
-    if(t) while(get_system_timer() < t+n);
+    unsigned long t = get_system_timer();
+    
+    // Se siamo su HW reale, il timer si muove ed è diverso da zero
+    if(t) 
+    {
+        // Aspetta finché il System Timer non è avanzato di N microsecondi
+        while(get_system_timer() < (t + n));
+    }
+    else 
+    {
+        // Se siamo su QEMU (timer fisso a 0), usiamo un fallback software.
+        // Tarato approssimativamente per emulare i microsecondi su cicli QEMU.
+        wait_cycles(n * 10);
+    }
+}
+
+/**
+ * Aspetta N millisecondi REALI (1 ms = 1000 microsecondi)
+ */
+void wait_msec(unsigned int n)
+{
+    // Un millisecondo è composto esplicitamente da 1000 microsecondi
+    while(n--) 
+    {
+        wait_usec(1000);
+    }
 }

@@ -19,6 +19,12 @@ static inline uint32_t mmio_read(uint32_t reg)
     return *(volatile uint32_t*)reg;
 }
 
+int uart_is_readable()
+{
+    // Ritorna 1 se la FIFO NON è vuota (c'è un carattere), 0 se è vuota
+    return !(mmio_read(UART0_FR) & (1 << 4));
+}
+
 // Delay loop
 static inline void delay(int32_t count)
 {

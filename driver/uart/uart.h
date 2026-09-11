@@ -8,6 +8,7 @@ void uart_putc(unsigned char c);
 unsigned char uart_getc();
 void uart_puts(const char* str);
 void uart_hex(unsigned int d);
+int uart_is_readable(void);
 
 enum
 {

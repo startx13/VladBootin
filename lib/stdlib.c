@@ -37,10 +37,12 @@ int strlen(const char* str)
 
 int memcmp(const void* s1, const void* s2, int len)
 {
-    unsigned char* p = s1;
-    unsigned char* q = s2;
+    // Aggiunto const per non scartare il qualificatore dei puntatori in ingresso
+    const unsigned char* p = s1;
+    const unsigned char* q = s2;
     int charCompareStatus = 0;
-    //If both pointer pointing same memory block
+    
+    // Se entrambi i puntatori puntano allo stesso blocco di memoria
     if (s1 == s2)
     {
         return charCompareStatus;
@@ -49,7 +51,7 @@ int memcmp(const void* s1, const void* s2, int len)
     {
         if (*p != *q)
         {
-            //compare the mismatching character
+            // Confronta i caratteri che non corrispondono
             charCompareStatus = (*p > * q) ? 1 : -1;
             break;
         }
@@ -59,6 +61,7 @@ int memcmp(const void* s1, const void* s2, int len)
     }
     return charCompareStatus;
 }
+
 
 char* strncpy(char* dst, const char* src, int n)
 {

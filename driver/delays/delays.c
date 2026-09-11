@@ -52,16 +52,14 @@ void wait_msec(unsigned int n)
 unsigned long get_system_timer()
 {
     unsigned int h=-1, l;
-    // we must read MMIO area as two separate 32 bit reads
     h=*SYSTMR_HI;
     l=*SYSTMR_LO;
-    // we have to repeat it if high word changed during read
     if(h!=*SYSTMR_HI) {
         h=*SYSTMR_HI;
         l=*SYSTMR_LO;
     }
-    // compose long int value
-    return ((unsigned long) h << 32) | l;
+    // Restituisce solo la parte bassa a 32 bit, niente più warning
+    return l; 
 }
 
 /**

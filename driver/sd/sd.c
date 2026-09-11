@@ -706,7 +706,7 @@ int sd_init()
                 ccs = SCR_SUPP_CCS;
             }
 
-            uart_hex(r >> 32);
+            //uart_hex(r >> 32); 64-bit
             uart_hex(r);
 
             if(sd_err != SD_TIMEOUT && sd_err != SD_OK)
@@ -736,7 +736,7 @@ int sd_init()
         sd_rca = sd_cmd(CMD_SEND_REL_ADDR, 0);
 
         uart_puts("\r\n[SD] EMMC: CMD_SEND_REL_ADDR returned ");
-        uart_hex(sd_rca >> 32);
+        //uart_hex(sd_rca >> 32); 64-bit
         uart_hex(sd_rca);
 
         if(sd_err)

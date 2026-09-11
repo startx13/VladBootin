@@ -110,3 +110,11 @@ char* strcpy(char* strDest, const char* strSrc)
     while (*strDest++ = *strSrc++); // or while((*strDest++=*strSrc++) != '\0');
     return temp;
 }
+
+void emptyBuffer(char* buf,unsigned int l)
+{
+    for(unsigned int i=0;i<l;i++)
+    {
+        buf[i] = '\0';
+    }
+}

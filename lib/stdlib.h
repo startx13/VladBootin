@@ -18,3 +18,5 @@ struct ldiv_t {
 struct div_t div(int numer, int denom);
 struct ldiv_t ldiv(long int numer, long int denom);
 char * strcpy(char *strDest, const char *strSrc);
+
+void emptyBuffer(char* buf,unsigned int l);

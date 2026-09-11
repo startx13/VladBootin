@@ -1,0 +1,1 @@
+void bootFromFile(const char *kname, const char *dtbname);

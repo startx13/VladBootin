@@ -1,8 +1,11 @@
 #include <stddef.h>
 #include <stdint.h>
+
 #include "lib/stdlib.h"
 #include "lib/printf.h"
 #include "lib/fdt.h"
+#include "lib/crypto/sha256.h"
+#include "lib/crypto/rsa_pkcs1.h"
 
 #include "core/mm.h"
 #include "core/boot_mode/serial_boot.h"
@@ -60,6 +63,30 @@ extern void clean_dcache_range(unsigned int start, unsigned int end);
 extern void linux_boot(uint32_t kernel_entry,uint32_t machine_type,uint32_t dtb);
 
 //Functions
+
+void testRSA()
+{
+    static const uint8_t PUBKEY_N[256] = { /* ... i tuoi 256 byte ... */ };
+
+    rsa_pubkey_t pubkey;
+    bn_from_be_bytes(&pubkey.n, PUBKEY_N, sizeof(PUBKEY_N));
+    pubkey.e = 65537;
+
+    /* 2. Digest del kernel caricato in RAM */
+    const char *prova = "Testo Di Prova";
+    uint8_t digest[32];
+    sha256(prova, strlen(prova), digest);
+    print_sha256(digest);
+
+    /* 3. Verifica: signature_bytes sono i 256 byte della firma RSA */
+    rsa_verify_result_t res = rsa_pkcs1_v15_verify_sha256(&pubkey, signature_bytes, digest);
+
+    if (res != RSA_VERIFY_OK) 
+    {
+        printf("\r\n[RSA] Signature OK");
+    
+    }
+}
 
 void printMemoryMap()
 {

@@ -2,3 +2,4 @@
 *.dtb
 *.elf
 *.o
+*.pem

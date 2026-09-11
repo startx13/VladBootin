@@ -227,11 +227,5 @@ int bootFromSerial(char *args, unsigned int args_len)
 
     prepare_boot();
 
-    linux_boot(
-        (uint32_t)kernel_start,
-        0xFFFFFFFF,
-        DTB_LOAD_ADDR
-    );
-
-    while(1){}
+    linux_boot((uint32_t)kernel_start, 0xFFFFFFFF, DTB_LOAD_ADDR);
 }

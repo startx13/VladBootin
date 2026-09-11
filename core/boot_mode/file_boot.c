@@ -109,12 +109,10 @@ void bootFromFile(const char *kname, const char *dtbname)
 
     fdt_update_bootargs((void *)DTB_LOAD_ADDR, cmdline_buf);
     fdt_update_memory((void *)DTB_LOAD_ADDR, 0x3c000000); // Assume 512MB RAM for now
- 
     
+    printf("\r\n[BOOT] Preparing CPU for Linux handoff...");
+    prepare_boot();
     
-    //printf("\r\n[BOOT] Preparing CPU for Linux handoff...");
-    //prepare_boot();
-    
-    //linux_boot(KERNEL_LOAD_ADDR, 0xFFFFFFFF, DTB_LOAD_ADDR);
+    linux_boot(KERNEL_LOAD_ADDR, 0xFFFFFFFF, DTB_LOAD_ADDR);
 
 }

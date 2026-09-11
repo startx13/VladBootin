@@ -220,5 +220,4 @@ void print_sha256(const uint8_t hash[32])
         uart_putc(hex[hash[i] & 0x0f]);
     }
 
-    uart_putc('\n');
 }

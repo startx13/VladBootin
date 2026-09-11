@@ -3,6 +3,8 @@
 #include "../../driver/uart/uart.h"
 #include "../../lib/printf.h"
 #include "../../driver/delays/delays.h"
+#include "../../lib/crypto/sha256.h"
+#include "../../lib/fdt.h"
 
 extern void halt(void);
 extern void prepare_boot(void);
@@ -208,6 +210,19 @@ int bootFromSerial(char *args, unsigned int args_len)
 
     printf("\r\nKernel received: %u bytes.", kernel_size);
     printf("\r\nDTB received: %u bytes.", dtb_size);
+    //Kernel SHA256
+    uint8_t kernel_digest[32];
+    sha256((void *)KERNEL_LOAD_ADDR, (size_t)kernel_size, kernel_digest);
+    print_sha256(kernel_digest);
+
+    //DTB SHA256
+    uint8_t dtb_digest[32];
+    sha256((void *)DTB_LOAD_ADDR, (size_t)dtb_size, dtb_digest);
+    print_sha256(dtb_digest);
+
+    fdt_update_bootargs((void *)DTB_LOAD_ADDR, "root=/dev/mmcblk0p2 rw rootwait console=ttyS1,115200");
+    fdt_update_memory((void *)DTB_LOAD_ADDR, 0x3c000000);
+
     printf("\r\nPreparing CPU for Linux...");
 
     prepare_boot();

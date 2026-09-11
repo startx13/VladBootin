@@ -55,6 +55,11 @@ void bootFromFile(const char *kname, const char *dtbname)
     }
     printf(" OK");
 
+    //Kernel SHA256
+    uint8_t k_digest[32];
+    sha256((void *)KERNEL_LOAD_ADDR, (size_t)k_size, k_digest);
+    print_sha256(k_digest);
+
     printf("\r\n[BOOT] Loading DTB (%u bytes) to 0x%08x...", dtb_size, DTB_LOAD_ADDR);
     unsigned int r_dtb = fat_readfile_to(dtb_cl, (void *)DTB_LOAD_ADDR, dtb_size);
     if(r_dtb < dtb_size)
@@ -63,6 +68,11 @@ void bootFromFile(const char *kname, const char *dtbname)
         return;
     }
     printf(" OK");
+
+    //DTB SHA256
+    uint8_t dtb_digest[32];
+    sha256((void *)DTB_LOAD_ADDR, (size_t)dtb_size, dtb_digest);
+    print_sha256(dtb_digest);
 
     /* Validate DTB magic: 0xd00dfeed in big-endian */
     unsigned char *dtb = (unsigned char *)DTB_LOAD_ADDR;
@@ -77,7 +87,6 @@ void bootFromFile(const char *kname, const char *dtbname)
     char cmdline_buf[256];
     emptyBuffer(cmdline_buf, sizeof(cmdline_buf));
 
-    printf("\r\n[DEBUG] BEFORE CMD: k_size=%u", k_size);
     unsigned int cmd_size = 0;
     unsigned int cmd_cl = fat_getcluster_ex("cmdline.txt", &cmd_size);
 
@@ -101,9 +110,7 @@ void bootFromFile(const char *kname, const char *dtbname)
     fdt_update_bootargs((void *)DTB_LOAD_ADDR, cmdline_buf);
     fdt_update_memory((void *)DTB_LOAD_ADDR, 0x3c000000); // Assume 512MB RAM for now
  
-    uint8_t digest[32];
-    sha256((void *)KERNEL_LOAD_ADDR, (size_t)k_size, digest);
-    print_sha256(digest);
+    
     
     //printf("\r\n[BOOT] Preparing CPU for Linux handoff...");
     //prepare_boot();

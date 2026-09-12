@@ -1,0 +1,1 @@
+In this folder you will find your generated private key and the serial loader, the serial loader expet to use kernel.img and dtb from origninal rpi firmware, you can find it here https://github.com/raspberrypi/firmware

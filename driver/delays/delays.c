@@ -52,19 +52,8 @@ unsigned long get_system_timer()
 void wait_usec(unsigned int n)
 {
     unsigned long t = get_system_timer();
-    
-    // Se siamo su HW reale, il timer si muove ed è diverso da zero
-    if(t) 
-    {
-        // Aspetta finché il System Timer non è avanzato di N microsecondi
-        while(get_system_timer() < (t + n));
-    }
-    else 
-    {
-        // Se siamo su QEMU (timer fisso a 0), usiamo un fallback software.
-        // Tarato approssimativamente per emulare i microsecondi su cicli QEMU.
-        wait_cycles(n * 10);
-    }
+    unsigned long target = t + n;
+    while(get_system_timer() < target);
 }
 
 /**

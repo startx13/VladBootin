@@ -40,6 +40,15 @@ startfile:
 	$(Q)arm-none-eabi-gcc $(MFLAGS) -c main.c -o build/main.o -O2
 
 
+# SHA256 compilata con ottimizzazione, senza modificare
+# l'ottimizzazione del resto del progetto.
+$(OBJ)/lib/crypto/sha256.o: lib/crypto/sha256.c
+	@mkdir -p $(dir $@)
+
+	@printf "  [CC]      %s\n" "$<"
+	$(Q)arm-none-eabi-gcc $(MFLAGS) -O2 -c $< -o $@
+
+
 $(OBJ)/%.o: %.c
 	@mkdir -p $(dir $@)
 

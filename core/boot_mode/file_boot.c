@@ -17,7 +17,13 @@ void bootFromFile(const char *kname, const char *dtbname)
 {
 
     if(!kname || kname[0] == '\0')
-        kname = "kernel7.img";
+    {
+        #ifdef SKIP_SELFCHECK
+            kname = "kernel7.img";
+        #else
+            kname = "signed_kernel.img";
+        #endif
+    }
 
     if(!dtbname || dtbname[0] == '\0')
         dtbname = "bcm2709-rpi-2-b.dtb";
@@ -56,8 +62,11 @@ void bootFromFile(const char *kname, const char *dtbname)
     printf(" OK");
 
     //Kernel SHA256
+
+    printf("\r\n[CRYPTO] KERNEL SHA256 START");
     uint8_t k_digest[32];
     sha256((void *)KERNEL_LOAD_ADDR, (size_t)k_size, k_digest);
+    printf("\r\n[CRYPTO] KERNEL SHA256 END");
     print_sha256(k_digest);
 
     printf("\r\n[BOOT] Loading DTB (%u bytes) to 0x%08x...", dtb_size, DTB_LOAD_ADDR);

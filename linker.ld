@@ -22,6 +22,14 @@ SECTIONS
     . = ALIGN(4096); /* align to page size */
     __rodata_end = .;
  
+    . = ALIGN(4);
+    __sig_start = .;
+    .sig :
+    {
+        KEEP(*(.sig))
+    }
+    __sig_end = .;
+
     __data_start = .;
     .data :
     {

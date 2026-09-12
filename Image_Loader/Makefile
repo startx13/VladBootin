@@ -1,4 +1,4 @@
-.PHONY: keys test_signature delete_all_keys delete_all_signatures
+.PHONY: keys test_signature sign_bootloader delete_all_keys delete_all_signatures
 
 # --- Generazione chiavi + header pubblico ---
 #
@@ -22,6 +22,20 @@ test_signature: signing_key.pem
 	openssl dgst -sha256 -sign signing_key.pem -out msg.sig msg.bin
 	python3 gen_signature_header.py msg.sig test_signature.h signature_bytes
 	mv test_signature.h ../lib/crypto/test_signature.h
+
+# --- Firma dell'immagine reale del bootloader ---
+#
+# Dipende dalla chiave (la genera se manca). Richiede che
+# vladBootin.elf e vladBootin.img siano gia' stati prodotti dal
+# Makefile principale nella root del progetto (target 'link'):
+# qui non si ricompila nulla, si patcha solo l'img esistente.
+sign_bootloader: signing_key.pem
+	@if [ ! -f ../build/vladBootin.elf ] || [ ! -f ../vladBootin.img ]; then \
+		echo "ERRORE: ../build/vladBootin.elf o ../vladBootin.img mancanti."; \
+		echo "Lancia prima 'make' nella root del progetto."; \
+		exit 1; \
+	fi
+	python3 sign_bootloader.py ../build/vladBootin.elf ../vladBootin.img signing_key.pem
 
 # --- Pulizia ---
 

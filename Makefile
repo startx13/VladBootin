@@ -15,6 +15,14 @@ ifeq ($(V),1)
 	Q :=
 endif
 
+# Salta il self-check crittografico a runtime (utile solo per
+# make run: QEMU esegue build/vladBootin.elf direttamente, non
+# vladBootin.img firmato, quindi il check fallirebbe sempre li').
+# make SKIP_SELFCHECK=1
+ifeq ($(SKIP_SELFCHECK),1)
+	MFLAGS += -DSKIP_SELFCHECK
+endif
+
 
 .PHONY: all startfile link clean run
 
@@ -54,6 +62,9 @@ link:
 
 	@printf "  [OBJCOPY] %s\n" "vladBootin.img"
 	$(Q)arm-none-eabi-objcopy build/vladBootin.elf -O binary vladBootin.img
+
+	@printf "  [SIGN]    %s\n" "vladBootin.img"
+	$(Q)$(MAKE) -C Image_Loader sign_bootloader
 
 
 clean:

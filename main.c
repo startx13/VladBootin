@@ -10,6 +10,7 @@
 #include "core/mm.h"
 #include "core/boot_mode/serial_boot.h"
 #include "core/boot_mode/file_boot.h"
+#include "core/signature_check.h"
 
 #include "driver/framebuffer/lfb.h"
 #include "driver/uart/uart.h"
@@ -47,12 +48,20 @@ uint32_t gatags;
 
 int sd_ret = 0;
 
+__attribute__((section(".sig")))
+const uint8_t boot_signature[256] = {
+    /* placeholder: sarà patchato post-link con la firma reale */
+    [0 ... 255] = 0xAA
+};
+
 //Roba esterna
 extern unsigned char __start;
 extern unsigned char __text_start;
 extern unsigned char __text_end;
 extern unsigned char __rodata_start;
 extern unsigned char __rodata_end;
+extern unsigned char __sig_start;
+extern unsigned char __sig_end;
 extern unsigned char __data_start;
 extern unsigned char __data_end;
 extern unsigned char __bss_start;
@@ -610,7 +619,12 @@ void testRead()
 
 void vladBootin_main(uint32_t r0, uint32_t r1, uint32_t atags)
 {
-    uart_init();    
+    uart_init();  
+    
+    if (!selfcheck_verify_signature()) {
+        printf("\r\n[SELFCHECK] Integrity check failed, halting.");
+        halt();
+    }
 
     lfb_init();
     lfb_init();

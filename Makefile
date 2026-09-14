@@ -23,6 +23,11 @@ ifeq ($(SKIP_SELFCHECK),1)
 	MFLAGS += -DSKIP_SELFCHECK
 endif
 
+# Enable framebuffer in QEMU
+ifeq ($(LFB_PUTCHAR),1)
+	MFLAGS += -DLFB_PUTCHAR
+endif
+
 
 .PHONY: all startfile link clean run
 

@@ -35,6 +35,7 @@
 
 #include "printf.h"
 #include "../driver/uart/uart.h"
+#include "../driver/framebuffer/lfb.h"
 
 
 // define this globally (e.g. gcc -DPRINTF_INCLUDE_CONFIG_H ...) to include the
@@ -917,4 +918,8 @@ int fctprintf(void (*out)(char character, void* arg), void* arg, const char* for
 void _putchar(char character)
 {
     uart_putc(character);
+
+    #ifdef LFB_PUTCHAR
+    lfb_putchar(character);
+    #endif
 }
